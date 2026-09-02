@@ -1,10 +1,16 @@
 // song select.
 //
-// sets on the left, difficulties of the highlighted set on the right. typing filters.
+// sets on the left, difficulties of the highlighted set on the right.
+//
+// two modes. browsing is the default: w/s or up/down move between songs, a/d or
+// left/right pick a difficulty. backslash switches to searching, where typing filters
+// the list, and enter or esc goes back to browsing. it needs the split because
+// otherwise w and s would type into the search instead of moving.
+//
 // this uses plain ANSI instead of the framebuffer because it's all text, and text
 // needs real characters rather than half blocks.
 
-import { stdin, stdout } from 'node:process';
+import process from 'node:process';
 
 const CSI = '\x1b[';
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -34,6 +40,11 @@ const pad = (s, n) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s
 
 // returns { type: 'play', map } or { type: 'browse' }, or null if they backed out
 export function selectSong(maps) {
+  // grabbed here rather than imported at the top, because node:process named exports
+  // are bound once at load and cannot be swapped out for a test double
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+
   return new Promise((resolve) => {
     // group into sets, easiest difficulty first
     const sets = [];
@@ -50,6 +61,7 @@ export function selectSong(maps) {
     let filtered = sets;
     let setIdx = 0, diffIdx = 0, scroll = 0;
     let done = false;
+    let searching = false;    // backslash opens the search, esc or enter closes it
 
     const refilter = () => {
       const q = query.toLowerCase();
@@ -72,7 +84,9 @@ export function selectSong(maps) {
 
       const out = [`${CSI}H${CSI}J`];
       out.push(`${BRIGHT}  osuterminal${RESET}${DIM}   ${filtered.length} sets`);
-      out.push(query ? `   ${ACCENT}/${query}${RESET}` : `   ${DIM}type to search${RESET}`);
+      out.push(searching ? `   ${ACCENT}\\${query}_${RESET}`
+        : query ? `   ${ACCENT}\\${query}${RESET}${DIM} (backspace clears)${RESET}`
+        : `   ${DIM}\\ to search${RESET}`);
       out.push('\r\n\r\n');
 
       const cur = filtered[setIdx];
@@ -112,7 +126,9 @@ export function selectSong(maps) {
       } else {
         out.push(`  ${DIM}no matches${RESET}\r\n`);
       }
-      out.push(`  ${DIM}up/down set   left/right difficulty   enter play   tab download more   esc quit${RESET}`);
+      out.push(searching
+        ? `  ${DIM}typing a filter   enter or esc to stop${RESET}`
+        : `  ${DIM}w/s song   a/d difficulty   enter play   \\ search   tab download   esc quit${RESET}`);
       stdout.write(out.join(''));
     };
 
@@ -128,32 +144,60 @@ export function selectSong(maps) {
       resolve(result);
     };
 
+    const lastSet = () => Math.max(0, filtered.length - 1);
+    const lastDiff = () => Math.max(0, (filtered[setIdx]?.diffs.length ?? 1) - 1);
+    const moveSet = (n) => { setIdx = clamp(setIdx + n, 0, lastSet()); diffIdx = 0; };
+    const moveDiff = (n) => { diffIdx = clamp(diffIdx + n, 0, lastDiff()); };
+
     const onKey = (chunk) => {
       const s = chunk.toString('latin1');
 
-      if (s === '\x1b' || s === '\x03') return finish(null);
+      if (s === '\x03') return finish(null);
+
+      // arrows work in both modes
+      if (s.startsWith('\x1b[')) {
+        const k = s[2];
+        if (k === 'A') moveSet(-1);
+        else if (k === 'B') moveSet(1);
+        else if (k === 'D') moveDiff(-1);
+        else if (k === 'C') moveDiff(1);
+        else if (k === '5') moveSet(-10);      // pgup
+        else if (k === '6') moveSet(10);       // pgdn
+        return draw();
+      }
+
+      // ---- typing a search ----
+      // held separately from browsing so w/s can be movement keys rather than text
+      if (searching) {
+        if (s === '\x1b') { searching = false; return draw(); }
+        if (s === '\r' || s === '\n') { searching = false; return draw(); }
+        if (s === '\x7f' || s === '\b') { query = query.slice(0, -1); refilter(); return draw(); }
+        if (s.length === 1 && s >= ' ' && s <= '~') { query += s; refilter(); return draw(); }
+        return;
+      }
+
+      // ---- browsing ----
+      if (s === '\x1b') return finish(null);
+      if (s === '\\') { searching = true; return draw(); }
       if (s === '\t') return finish({ type: 'browse' });
       if (s === '\r' || s === '\n') {
         const cur = filtered[setIdx];
         return cur ? finish({ type: 'play', map: cur.diffs[diffIdx] }) : undefined;
       }
-      if (s === '\x7f' || s === '\b') { query = query.slice(0, -1); refilter(); return draw(); }
-
-      // arrow keys
-      if (s.startsWith('\x1b[')) {
-        const cur = filtered[setIdx];
-        const k = s[2];
-        if (k === 'A') setIdx = clamp(setIdx - 1, 0, Math.max(0, filtered.length - 1)), diffIdx = 0;
-        else if (k === 'B') setIdx = clamp(setIdx + 1, 0, Math.max(0, filtered.length - 1)), diffIdx = 0;
-        else if (k === 'D') diffIdx = clamp(diffIdx - 1, 0, Math.max(0, (cur?.diffs.length ?? 1) - 1));
-        else if (k === 'C') diffIdx = clamp(diffIdx + 1, 0, Math.max(0, (cur?.diffs.length ?? 1) - 1));
-        else if (k === '5') setIdx = clamp(setIdx - 10, 0, Math.max(0, filtered.length - 1)), diffIdx = 0;   // pgup
-        else if (k === '6') setIdx = clamp(setIdx + 10, 0, Math.max(0, filtered.length - 1)), diffIdx = 0;   // pgdn
+      // clearing the filter without having to open the search again
+      if (s === '\x7f' || s === '\b') {
+        if (!query) return;
+        query = '';
+        refilter();
         return draw();
       }
 
-      // anything printable goes into the search
-      if (s.length === 1 && s >= ' ' && s <= '~') { query += s; refilter(); return draw(); }
+      const k = s.toLowerCase();
+      if (k === 'w') { moveSet(-1); return draw(); }
+      if (k === 's') { moveSet(1); return draw(); }
+      if (k === 'a') { moveDiff(-1); return draw(); }
+      if (k === 'd') { moveDiff(1); return draw(); }
+      if (k === 'q') return finish(null);
     };
 
     stdout.write(`${CSI}?1049h${CSI}?25l`);
