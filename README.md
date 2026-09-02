@@ -23,7 +23,9 @@ osuterminal --download            # get more maps
 osuterminal --list
 ```
 
-z / x / mouse to hit, space to pause, +/- to nudge offset, q to quit.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q quits.
+
+Rebind the tap keys with `--keys ab`, it remembers.
 
 ## downloading maps
 
@@ -50,12 +52,15 @@ osuterminal --get 354366
 
 ## calibration
 
-Run `osuterminal --calibrate` once. Metronome plays, you tap along to what you hear, it
-saves the offset to `~/.osuterminal.json`.
+Offset defaults to -15ms, which is what I measured on my machine two separate ways (the
+metronome said -13, an actual play through said -16.9). That should be close enough that
+you never think about it.
 
-This isn't optional. Audio latency comes from the sound device, your headphones, the
-terminal, and your own reaction time. There's no way to calculate it, you have to
-measure it.
+If it feels off on your setup, `osuterminal --calibrate` plays a metronome, you tap along
+to what you hear, and it saves your own number to `~/.osuterminal.json`.
+
+Audio latency comes from the sound device, your headphones, the terminal, and your own
+reaction time. There's no way to calculate it, you have to measure it.
 
 One thing I did fix in code: mpg123 strips the LAME encoder delay when it decodes mp3s
 but osu's decoder doesn't, so maps end up ~13ms early and every hit reads as late.
