@@ -31,7 +31,9 @@ You don't need osu! installed. `osuterminal --download` opens a browser: type a 
 enter to search, arrows to move around, enter again to download. Tab gets you there
 from song select too, and if your Songs folder is empty it just opens automatically.
 
-Maps come from catboy.best with nerinyan as a backup. No account or api key needed.
+Maps come from catboy, osu.direct, nerinyan and sayobot, whichever answers first. No
+account or api key needed. A mirror that blocks us gets dropped for the rest of the
+session so it does not get hammered.
 Video and storyboard files get stripped since nothing here can show them and they are
 usually most of the download.
 
