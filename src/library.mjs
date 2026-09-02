@@ -39,6 +39,14 @@ export function osuSongsPresent(dir = osuSongsDir()) {
   }
 }
 
+// osuterminal usesongs  /  --import-osu  turn the osu! Songs scan on.
+export function parseImportOsuArg(a) {
+  const s = String(a).toLowerCase();
+  if (s === 'usesongs' || s === 'use-songs' || s === '--usesongs' || s === '--import-osu') return 'on';
+  if (s === '--no-import-osu' || s === '--no-usesongs') return 'off';
+  return null;
+}
+
 export function libraryRoots({ bundledDir, songsDir, importOsu = false } = {}) {
   const roots = [];
   const seen = new Set();

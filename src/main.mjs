@@ -6,7 +6,7 @@
 //   osuterminal <search> -d 3       pick difficulty 3
 //   osuterminal --list              print the library
 //   osuterminal --calibrate         measure audio offset
-//   osuterminal --import-osu        include maps from the osu! Songs folder
+//   osuterminal usesongs            include maps from the osu! Songs folder
 //   osuterminal --no-import-osu     skip the osu! Songs folder
 //
 // flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
@@ -27,7 +27,7 @@ import { search as searchMirror, download as downloadSet } from './net/mirror.mj
 import { extractOsz } from './net/osz.mjs';
 import {
   defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
-  libraryRoots, mergeMaps,
+  libraryRoots, mergeMaps, parseImportOsuArg,
 } from './library.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -72,16 +72,19 @@ function parseArgs(argv, cfg) {
     else if (a === '--relative') out.aimMode = 'relative';
     else if (a === '--absolute') out.aimMode = 'absolute';
     else if (a === '--songs') out.songs = argv[++i];
-    else if (a === '--import-osu') { out.importOsu = true; out.importOsuFlag = 'on'; }
-    else if (a === '--no-import-osu') { out.importOsu = false; out.importOsuFlag = 'off'; }
-    else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
-    else if (a === '--list' || a === '-l') out.list = true;
-    else if (a === '--calibrate' || a === '-c') out.calibrate = true;
-    else if (a === '--help' || a === '-h') out.help = true;
-    else if (a === '--search') out.online = argv[++i];
-    else if (a === '--get') out.get = argv[++i];
-    else if (a === '--download') out.download = true;
-    else out.terms.push(a);
+    else {
+      const imp = parseImportOsuArg(a);
+      if (imp === 'on') { out.importOsu = true; out.importOsuFlag = 'on'; }
+      else if (imp === 'off') { out.importOsu = false; out.importOsuFlag = 'off'; }
+      else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
+      else if (a === '--list' || a === '-l') out.list = true;
+      else if (a === '--calibrate' || a === '-c') out.calibrate = true;
+      else if (a === '--help' || a === '-h') out.help = true;
+      else if (a === '--search') out.online = argv[++i];
+      else if (a === '--get') out.get = argv[++i];
+      else if (a === '--download') out.download = true;
+      else out.terms.push(a);
+    }
   }
   return out;
 }
@@ -183,6 +186,7 @@ function printHelp() {
 ${bold('osuterminal')}  osu!standard in your terminal
 
   ${bold('osuterminal')}                  interactive song select
+  ${bold('osuterminal usesongs')}         include your osu! Songs folder ${dim('(remembered)')}
   ${bold('osuterminal <search>')}         jump into the first matching map
   ${bold('osuterminal <search> -d 3')}    ...choosing the 3rd difficulty
   ${bold('osuterminal --download')}       browse and download beatmaps
@@ -196,7 +200,6 @@ ${bold('options')}
       --sens <n>     sensitivity, relative mode only
       --offset <ms>  audio offset override ${dim('(default -15, you should not need this)')}
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
-      --import-osu   include maps from your osu! Songs folder ${dim('(remembered, nothing is copied)')}
       --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
       --get <id>     download a beatmap set by id
@@ -259,7 +262,7 @@ async function main() {
       saveConfig({ importOsu: choice });
       console.log(choice
         ? dim(`\n  importing from ${osuSongsDir()}  (--no-import-osu to undo)\n`)
-        : dim(`\n  skipped.  osuterminal --import-osu  later if you change your mind\n`));
+        : dim(`\n  skipped.  osuterminal usesongs  later if you change your mind\n`));
     }
   } else if (args.importOsuFlag === 'on' && osuSongsPresent()) {
     console.log(dim(`\n  importing from ${osuSongsDir()}\n`));
@@ -275,7 +278,7 @@ async function main() {
     console.log(`\n  No osu!standard maps found under:\n  ${dim(args.songs)}\n`);
     if (!args.importOsu && osuSongsPresent()) {
       console.log(`  You have an osu! library at:\n  ${dim(osuSongsDir())}`);
-      console.log(`  Include it with  ${bold('osuterminal --import-osu')}\n`);
+      console.log(`  Include it with  ${bold('osuterminal usesongs')}\n`);
     }
     if (!stdout.isTTY) throw new Error('Run  osuterminal --download  in a terminal to get some.');
     console.log('  Opening the downloader...\n');

@@ -4,7 +4,7 @@ osu!standard in a terminal, with mouse aim and hit circles.
 
 Maps you download land in `~/osuterminal/Songs`. Two easy beginner maps (Warmup and
 First Steps) ship with the package so you can play immediately. If you already have
-osu! installed, `osuterminal --import-osu` will also list those maps in place — nothing
+osu! installed, `osuterminal usesongs` will also list those maps in place — nothing
 is copied, and it is off until you choose it.
 
 ## install
@@ -35,7 +35,7 @@ osuterminal                       # song select
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
-osuterminal --import-osu          # include your existing osu! Songs folder
+osuterminal usesongs              # include your existing osu! Songs folder
 osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
@@ -51,7 +51,7 @@ You don't need osu! installed. Downloads go to `~/osuterminal/Songs` (override w
 search, arrows to move around, enter again to download. Tab gets you there from song
 select too, and if your Songs folder is empty it just opens automatically.
 
-To play maps you already have in osu!, run `osuterminal --import-osu`. That only
+To play maps you already have in osu!, run `osuterminal usesongs`. That only
 reads `%LOCALAPPDATA%\osu!\Songs` (or the equivalent on other OSes) — it does not
 copy tens of gigabytes, and it does not create an osu! folder. `--no-import-osu`
 turns it back off. Both are remembered in `~/.osuterminal.json`. On first launch,

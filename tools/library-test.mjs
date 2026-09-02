@@ -5,7 +5,7 @@ import os from 'node:os';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import {
   defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
-  libraryRoots, mergeMaps, mapIdentity,
+  libraryRoots, mergeMaps, mapIdentity, parseImportOsuArg,
 } from '../src/library.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
@@ -60,6 +60,13 @@ mkdirSync(path.join(tmp, '123 song'));
 check(osuSongsPresent(tmp), 'a song folder counts as present');
 check(!osuSongsPresent(path.join(tmp, 'does-not-exist')), 'missing folder is not present');
 rmSync(tmp, { recursive: true, force: true });
+
+console.log('\n=== usesongs command ===');
+check(parseImportOsuArg('usesongs') === 'on', 'usesongs turns import on');
+check(parseImportOsuArg('USESONGS') === 'on', 'usesongs is case-insensitive');
+check(parseImportOsuArg('--import-osu') === 'on', '--import-osu still works');
+check(parseImportOsuArg('--no-import-osu') === 'off', '--no-import-osu turns it off');
+check(parseImportOsuArg('tower') == null, 'a search term is not usesongs');
 
 if (failures) {
   console.log(`\n${failures} failed\n`);
