@@ -36,7 +36,7 @@ osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q quits.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select.
 
 Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else needed.
 
