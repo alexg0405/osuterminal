@@ -6,6 +6,7 @@
 //   osuterminal <search> -d 3       pick difficulty 3
 //   osuterminal --list              print the library
 //   osuterminal --calibrate         measure audio offset
+//   osuterminal --import-osu        include maps from the osu! Songs folder
 //
 // flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
 
@@ -13,8 +14,9 @@ import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import readline from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { stdout } from 'node:process';
+import { stdout, stdin } from 'node:process';
 import { Beatmap } from './core/beatmap.mjs';
 import { decodeAudio } from './audio/decode.mjs';
 import { Game } from './game.mjs';
@@ -22,6 +24,10 @@ import { selectSong } from './select.mjs';
 import { browseOnline } from './net/browse.mjs';
 import { search as searchMirror, download as downloadSet } from './net/mirror.mjs';
 import { extractOsz } from './net/osz.mjs';
+import {
+  defaultSongsDir, osuSongsDir, osuSongsPresent,
+  libraryRoots, mergeMaps,
+} from './library.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,14 +40,6 @@ const CONFIG = path.join(os.homedir(), '.osuterminal.json');
 // should not have to touch it to get a playable feel out of the box.
 const DEFAULT_OFFSET_MS = -15;
 
-// where osu keeps beatmaps on each platform
-function defaultSongsDir() {
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA)
-    return path.join(process.env.LOCALAPPDATA, 'osu!', 'Songs');
-  if (process.platform === 'darwin')
-    return path.join(os.homedir(), 'Library', 'Application Support', 'osu!', 'Songs');
-  return path.join(os.homedir(), '.local', 'share', 'osu!', 'Songs');
-}
 
 function loadConfig() {
   try { return existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, 'utf8')) : {}; }
@@ -61,7 +59,9 @@ function parseArgs(argv, cfg) {
     sens: cfg.sensitivity ?? 1.0,
     keys: cfg.keys ?? ['z', 'x'],
     aimMode: cfg.aimMode ?? 'absolute',
-    songs: cfg.songsDir ?? defaultSongsDir(),
+    songs: cfg.songsDir ?? userSongsDir(),
+    importOsu: cfg.importOsu === true,
+    importOsuFlag: null,          // 'on' | 'off' when they passed a flag this run
     offsetFromConfig: cfg.audioOffsetMs !== undefined,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -72,6 +72,8 @@ function parseArgs(argv, cfg) {
     else if (a === '--relative') out.aimMode = 'relative';
     else if (a === '--absolute') out.aimMode = 'absolute';
     else if (a === '--songs') out.songs = argv[++i];
+    else if (a === '--import-osu') { out.importOsu = true; out.importOsuFlag = 'on'; }
+    else if (a === '--no-import-osu') { out.importOsu = false; out.importOsuFlag = 'off'; }
     else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
     else if (a === '--list' || a === '-l') out.list = true;
     else if (a === '--calibrate' || a === '-c') out.calibrate = true;
@@ -117,10 +119,11 @@ async function loadFromDir(root) {
 
 const BUNDLED = path.join(HERE, '..', 'bundled');
 
-async function loadLibrary(songsDir) {
+async function ensureSongsDir(songsDir) {
   try { await readdir(songsDir); }
   catch (err) {
-    // no osu! install (or first run) — create the folder so downloads have somewhere to go
+    // first run — create our folder so downloads have somewhere to go.
+    // never create the osu! Songs path; that is only read when they import.
     if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
       try { await mkdir(songsDir, { recursive: true }); }
       catch {
@@ -132,7 +135,28 @@ async function loadLibrary(songsDir) {
         `Point somewhere else with  --songs <dir>  (it will be remembered).`);
     }
   }
-  return [...await loadFromDir(BUNDLED), ...await loadFromDir(songsDir)];
+}
+
+async function loadLibrary(songsDir, { importOsu } = {}) {
+  await ensureSongsDir(songsDir);
+  const lists = [];
+  for (const dir of libraryRoots({ bundledDir: BUNDLED, songsDir, importOsu })) {
+    lists.push(await loadFromDir(dir));
+  }
+  return mergeMaps(...lists);
+}
+
+async function askImportOsu(osuDir) {
+  if (!stdout.isTTY || !stdin.isTTY) return null;
+  console.log(`\n  Found an osu! Songs folder:\n  ${dim(osuDir)}\n`);
+  console.log('  Include those maps in osuterminal? They stay where they are; nothing is copied.\n');
+  const rl = readline.createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = await rl.question('  Import osu! library? [y/N] ');
+    return /^\s*y/i.test(answer);
+  } finally {
+    rl.close();
+  }
 }
 
 function printList(maps) {
@@ -171,7 +195,9 @@ ${bold('options')}
       --relative     relative aim instead of absolute ${dim('(cursor stops tracking your mouse)')}
       --sens <n>     sensitivity, relative mode only
       --offset <ms>  audio offset override ${dim('(default -15, you should not need this)')}
-      --songs <dir>  beatmap folder ${dim('(remembered)')}
+      --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
+      --import-osu   include maps from your osu! Songs folder ${dim('(remembered, nothing is copied)')}
+      --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
       --get <id>     download a beatmap set by id
   -l, --list         list maps and exit
@@ -199,6 +225,9 @@ async function main() {
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
 
+  if (args.importOsuFlag === 'on') saveConfig({ importOsu: true });
+  if (args.importOsuFlag === 'off') saveConfig({ importOsu: false });
+
   // --keys on its own is a settings command: save, say so, done. combined with anything
   // else it just applies to that run as well.
   if (process.argv.includes('--keys')) {
@@ -222,18 +251,38 @@ async function main() {
     return;
   }
 
-  let maps = await loadLibrary(args.songs);
+  // first launch: if they already have osu! maps, ask once. never on by default.
+  if (args.importOsuFlag == null && cfg.importOsu === undefined && osuSongsPresent()) {
+    const choice = await askImportOsu(osuSongsDir());
+    if (choice != null) {
+      args.importOsu = choice;
+      saveConfig({ importOsu: choice });
+      console.log(choice
+        ? dim(`\n  importing from ${osuSongsDir()}  (--no-import-osu to undo)\n`)
+        : dim(`\n  skipped.  osuterminal --import-osu  later if you change your mind\n`));
+    }
+  } else if (args.importOsuFlag === 'on' && osuSongsPresent()) {
+    console.log(dim(`\n  importing from ${osuSongsDir()}\n`));
+  } else if (args.importOsu && !osuSongsPresent()) {
+    console.log(`\n  osu! Songs folder not found:\n  ${dim(osuSongsDir())}\n`);
+  }
+
+  let maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
   if (args.list) return printList(maps);
 
   // an empty library used to be a dead end. now it just means you need maps.
   if (!maps.length) {
     console.log(`\n  No osu!standard maps found under:\n  ${dim(args.songs)}\n`);
+    if (!args.importOsu && osuSongsPresent()) {
+      console.log(`  You have an osu! library at:\n  ${dim(osuSongsDir())}`);
+      console.log(`  Include it with  ${bold('osuterminal --import-osu')}\n`);
+    }
     if (!stdout.isTTY) throw new Error('Run  osuterminal --download  in a terminal to get some.');
     console.log('  Opening the downloader...\n');
     await new Promise((r) => setTimeout(r, 900));
     const got = await browseOnline(args.songs);
     if (!got) return;
-    maps = await loadLibrary(args.songs);
+    maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
     if (!maps.length) return;
   }
 
@@ -260,7 +309,7 @@ async function main() {
     if (!action) return;
     if (action.type === 'browse') {
       const got = await browseOnline(args.songs);
-      if (got) maps = await loadLibrary(args.songs);
+      if (got) maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
       continue;
     }
     const result = await play(action.map, args, cfg);
