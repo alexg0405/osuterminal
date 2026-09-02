@@ -10,6 +10,9 @@ is copied, and it is off until you choose it.
 
 ## install
 
+First thing, try
+''' npm install -g osuterminal '''
+
 Windows, one line. Installs Node.js LTS if you do not have it, then the npm package.
 Nothing is cloned from GitHub.
 
