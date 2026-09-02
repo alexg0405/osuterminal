@@ -25,7 +25,7 @@ import { browseOnline } from './net/browse.mjs';
 import { search as searchMirror, download as downloadSet } from './net/mirror.mjs';
 import { extractOsz } from './net/osz.mjs';
 import {
-  defaultSongsDir, osuSongsDir, osuSongsPresent,
+  defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
   libraryRoots, mergeMaps,
 } from './library.mjs';
 
@@ -39,7 +39,6 @@ const CONFIG = path.join(os.homedir(), '.osuterminal.json');
 // through said -16.9ms. -15 splits it. calibration can still override this but you
 // should not have to touch it to get a playable feel out of the box.
 const DEFAULT_OFFSET_MS = -15;
-
 
 function loadConfig() {
   try { return existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, 'utf8')) : {}; }
@@ -59,7 +58,7 @@ function parseArgs(argv, cfg) {
     sens: cfg.sensitivity ?? 1.0,
     keys: cfg.keys ?? ['z', 'x'],
     aimMode: cfg.aimMode ?? 'absolute',
-    songs: cfg.songsDir ?? userSongsDir(),
+    songs: cfg.songsDir ?? defaultSongsDir(),
     importOsu: cfg.importOsu === true,
     importOsuFlag: null,          // 'on' | 'off' when they passed a flag this run
     offsetFromConfig: cfg.audioOffsetMs !== undefined,
@@ -120,10 +119,10 @@ async function loadFromDir(root) {
 const BUNDLED = path.join(HERE, '..', 'bundled');
 
 async function ensureSongsDir(songsDir) {
+  // never create the osu! Songs path; that is only read when they import.
+  if (isOsuSongsPath(songsDir)) return;
   try { await readdir(songsDir); }
   catch (err) {
-    // first run — create our folder so downloads have somewhere to go.
-    // never create the osu! Songs path; that is only read when they import.
     if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
       try { await mkdir(songsDir, { recursive: true }); }
       catch {
@@ -318,8 +317,6 @@ async function main() {
 }
 
 const clampIndex = (i, n) => Math.max(0, Math.min(n - 1, i));
-
-const secs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 async function printSearch(query) {
   process.stdout.write(`  searching for ${bold(query)}... `);

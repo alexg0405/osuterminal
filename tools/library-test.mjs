@@ -30,6 +30,8 @@ const off = libraryRoots({ bundledDir: bundled, songsDir: songs, importOsu: fals
 check(off.length === 2, 'without import, bundled + songs dir only');
 check(!off.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
   'osu! Songs is not scanned unless they opt in');
+check(libraryRoots({ bundledDir: bundled, songsDir: songs }).length === 2,
+  'import is off unless they pass true');
 
 const on = libraryRoots({ bundledDir: bundled, songsDir: songs, importOsu: true });
 check(on.length === 3, 'import adds a third root');

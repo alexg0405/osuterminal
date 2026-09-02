@@ -1,20 +1,13 @@
-// where maps live.
+// where maps live, and how the library is assembled.
 //
-// downloads and anything we create go in ~/osuterminal/Songs. if the user already
-// has osu! installed we still *read* that Songs folder, but we never mkdir it —
-// creating %LOCALAPPDATA%\osu!\Songs made it look like we were pretending to be
-// osu, and people without osu! didn't want a fake install sitting there.
+// downloads go to ~/osuterminal/Songs. the osu! Songs folder is only scanned
+// when they opt in — we never create it, and we never copy maps out of it.
 
-import { readdir, mkdir } from 'node:fs/promises';
+import { readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
-import { Beatmap } from './core/beatmap.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const BUNDLED_SONGS = path.join(HERE, '..', 'bundled');
-
-export function userSongsDir() {
+export function defaultSongsDir() {
   return path.join(os.homedir(), 'osuterminal', 'Songs');
 }
 
@@ -34,46 +27,48 @@ export function isOsuSongsPath(dir) {
   return sameDir(dir, osuSongsDir());
 }
 
-// create our own library folder. never create the osu! path, even if someone
-// pointed --songs at it — extract still mkdirs the set folder inside if it exists.
-export async function ensureSongsDir(dir) {
-  if (isOsuSongsPath(dir)) return dir;
+// true when the folder exists and has at least one real song directory inside.
+// an empty leftover we accidentally created does not count.
+export function osuSongsPresent(dir = osuSongsDir()) {
   try {
-    await mkdir(dir, { recursive: true });
+    if (!existsSync(dir)) return false;
+    const ents = readdirSync(dir, { withFileTypes: true });
+    return ents.some((e) => e.isDirectory() && !e.name.startsWith('.'));
   } catch {
-    throw new Error(`Cannot create the songs folder:\n  ${dir}\n\n` +
-      `Point somewhere else with  --songs <dir>  (it will be remembered).`);
+    return false;
   }
-  return dir;
 }
 
-export async function loadFromDir(root) {
-  let dirs;
-  try { dirs = await readdir(root, { withFileTypes: true }); }
-  catch { return []; }
-  const maps = [];
-  for (const d of dirs) {
-    if (!d.isDirectory()) continue;
-    const dir = path.join(root, d.name);
-    let files;
-    try { files = await readdir(dir); } catch { continue; }
-    for (const f of files) {
-      if (!f.endsWith('.osu')) continue;
-      try {
-        const b = await Beatmap.load(path.join(dir, f));
-        if (b.isStandard && b.hitObjects.length) maps.push(b);
-      } catch { /* skip unreadable maps */ }
+export function libraryRoots({ bundledDir, songsDir, importOsu = false } = {}) {
+  const roots = [];
+  const seen = new Set();
+  const add = (dir) => {
+    if (!dir) return;
+    const resolved = path.resolve(dir);
+    if (seen.has(resolved)) return;
+    seen.add(resolved);
+    roots.push(dir);
+  };
+  add(bundledDir);
+  add(songsDir);
+  if (importOsu) add(osuSongsDir());
+  return roots;
+}
+
+export function mapIdentity(b) {
+  return `${b.artist}\0${b.title}\0${b.diffName}\0${b.creator ?? ''}`.toLowerCase();
+}
+
+export function mergeMaps(...lists) {
+  const seen = new Set();
+  const out = [];
+  for (const list of lists) {
+    for (const b of list) {
+      const k = mapIdentity(b);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(b);
     }
   }
-  return maps;
-}
-
-// bundled first, then the writable library, then the real osu! folder if it
-// exists and isn't the same path. missing folders just contribute nothing.
-export async function loadLibrary(songsDir) {
-  await ensureSongsDir(songsDir);
-  const maps = [...await loadFromDir(BUNDLED_SONGS), ...await loadFromDir(songsDir)];
-  const osu = osuSongsDir();
-  if (!sameDir(osu, songsDir)) maps.push(...await loadFromDir(osu));
-  return maps;
+  return out;
 }
