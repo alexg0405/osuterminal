@@ -13,7 +13,8 @@
     "calibrate": "node tools/calibrate.mjs",
     "test:slider": "node tools/slider-test.mjs",
     "bench": "node tools/render-bench.mjs",
-    "test:origin": "node tools/origin-test.mjs"
+    "test:origin": "node tools/origin-test.mjs",
+    "postinstall": "node tools/postinstall.mjs"
   },
   "engines": {
     "node": ">=20"
