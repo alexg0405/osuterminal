@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Beatmap, parseBackgroundEvent } from '../src/core/beatmap.mjs';
 import {
   decodeImage, coverScale, rgbaToRgb, BG_DIM, loadBackground,
+  parseBackgroundFlag, backgroundVisible, backgroundLabel,
 } from '../src/render/background.mjs';
 import { Framebuffer } from '../src/render/framebuffer.mjs';
 import jpeg from 'jpeg-js';
@@ -108,6 +109,18 @@ check(fb.blit(src) === true, 'blit accepts a matching buffer');
 check(fb.px[0] === 10 && fb.px[1] === 20 && fb.px[2] === 30, 'blit copies pixels');
 check(fb.txtChar[0] === 0, 'blit clears overlay text');
 check(fb.blit(new Uint8Array(3)) === false, 'blit rejects a size mismatch');
+
+console.log('\n=== background toggle ===');
+check(parseBackgroundFlag('--no-bg') === false, '--no-bg hides');
+check(parseBackgroundFlag('--no-background') === false, '--no-background hides');
+check(parseBackgroundFlag('--hide-background') === false, '--hide-background hides');
+check(parseBackgroundFlag('--bg') === true, '--bg shows');
+check(parseBackgroundFlag('--background') === true, '--background shows');
+check(parseBackgroundFlag('--volume') === null, 'other flags are left alone');
+check(backgroundVisible(undefined) === true, 'missing config means the picture is on');
+check(backgroundVisible(true) === true, 'true is on');
+check(backgroundVisible(false) === false, 'false is off');
+check(backgroundLabel(true) === 'on' && backgroundLabel(false) === 'off', 'pause-menu labels');
 
 if (failures) {
   console.log(`\n${failures} failed`);

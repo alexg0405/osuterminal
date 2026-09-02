@@ -60,14 +60,15 @@ osuterminal --download            # get more maps
 osuterminal --calibrate           # measure audio offset
 osuterminal --keys df             # rebind tap keys
 osuterminal --volume 70           # master volume 70% (remembered)
+osuterminal --no-bg               # hide beatmap backgrounds (remembered)
 osuterminal --list
 ```
 
 z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter (gold S, green A, and so on). r retries from there too; enter goes back to song select.
 
-`-` / `=` master volume, `[` / `]` music, `,` / `.` hitsounds. they work while playing and while paused, and they save to `~/.osuterminal.json`. `--volume 70` sets master to 70% (or `--volume 0.4` for 40%).
+`-` / `=` master volume, `[` / `]` music, `,` / `.` hitsounds, `b` background. they work while playing and while paused, and they save to `~/.osuterminal.json`. `--volume 70` sets master to 70% (or `--volume 0.4` for 40%). `--no-bg` hides beatmap pictures.
 
-Maps that ship a jpg/png get that picture behind the playfield, cover-cropped to the terminal and dimmed so circles still read. it is nearest-neighbour on purpose, so it looks pixelated. video and storyboards are still stripped; maps without an image stay on the dark playfield.
+Maps that ship a jpg/png get that picture behind the playfield, cover-cropped to the terminal and dimmed so circles still read. it is nearest-neighbour on purpose, so it looks pixelated. `b` hides it (and `--no-bg` starts hidden); both are remembered in `~/.osuterminal.json`. `--bg` turns it back on. video and storyboards are still stripped; maps without an image stay on the dark playfield.
 
 `\` from song select opens the downloader (the search in that screenshot). `/` filters the list you already have. in the downloader, `\` toggles the search field so w/s can move the results without typing into the query.
 
