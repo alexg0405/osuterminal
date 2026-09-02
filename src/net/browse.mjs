@@ -1,8 +1,8 @@
 // online beatmap browser.
 //
-// type a query, enter to search, arrows to move through results, enter again to
-// download. same two pane layout as the offline song select so it doesn't feel like a
-// different app.
+// type a query, enter to search. backslash leaves the field so w/s can move the
+// list, the same toggle as song select — without that, s would type into the query.
+// enter again on a highlighted set downloads it.
 //
 // search comes from osu's metadata, so a chunk of what comes back is not actually
 // hosted on any mirror. whichever set you highlight gets checked in the background and
@@ -11,7 +11,7 @@
 // only the highlighted one, deliberately. scanning a whole page at once got catboy to
 // 403 everything for a while.
 
-import { stdin, stdout } from 'node:process';
+import process from 'node:process';
 import { search, download, checkAvailable, isRateLimited, NotHostedError } from './mirror.mjs';
 import { extractOsz, alreadyHave } from './osz.mjs';
 
@@ -43,6 +43,9 @@ const secs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 // returns how many sets were downloaded, so the caller knows whether to reload
 export function browseOnline(songsDir) {
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+
   return new Promise((resolve) => {
     let query = '';
     let results = [];             // everything the search gave us
@@ -80,7 +83,8 @@ export function browseOnline(songsDir) {
       const out = [`${CSI}H${CSI}J`];
       out.push(`${BRIGHT}  download beatmaps${RESET}\r\n\r\n`);
       const caret = mode === 'typing' ? `${ACCENT}_${RESET}` : '';
-      out.push(`  ${DIM}search${RESET} ${BRIGHT}${query}${caret}${RESET}\r\n`);
+      out.push(`  ${DIM}search${RESET} ${BRIGHT}${query}${caret}${RESET}` +
+        (mode === 'browsing' && query ? `${DIM}  \\ to edit${RESET}` : '') + '\r\n');
       out.push(`  ${DIM}${statusLine}${RESET}\r\n\r\n`);
 
       const cur = view[setIdx];
@@ -126,8 +130,8 @@ export function browseOnline(songsDir) {
       }
       const filterHint = hideDead ? `${GREEN}hiding unavailable${RESET}${DIM}` : 'tab hide unavailable';
       out.push(mode === 'typing'
-        ? `  ${DIM}enter search   down to browse   ${filterHint}   esc back${RESET}`
-        : `  ${DIM}up/down sets   enter download   left/right diffs   ${filterHint}   esc back${RESET}`);
+        ? `  ${DIM}enter search   \\ done   then w/s move   ${filterHint}   esc back${RESET}`
+        : `  ${DIM}w/s sets   enter download   \\ search   ${filterHint}   esc back${RESET}`);
       stdout.write(out.join(''));
     };
 
@@ -237,8 +241,12 @@ export function browseOnline(songsDir) {
       const s = chunk.toString('latin1');
 
       if (s === '\x03') return finish();
+      if (s === '\\' || s === '/') {
+        mode = mode === 'typing' ? 'browsing' : 'typing';
+        return draw();
+      }
       if (s === '\x1b') {
-        if (mode === 'browsing') { mode = 'typing'; return draw(); }
+        if (mode === 'typing' && view.length) { mode = 'browsing'; return draw(); }
         return finish();
       }
       if (s === '\t') {
@@ -252,7 +260,7 @@ export function browseOnline(songsDir) {
         return mode === 'typing' ? doSearch() : doDownload();
       }
       if (s === '\x7f' || s === '\b') {
-        mode = 'typing';
+        if (mode !== 'typing') { mode = 'typing'; return draw(); }
         query = query.slice(0, -1);
         return draw();
       }
@@ -265,8 +273,7 @@ export function browseOnline(songsDir) {
           else setIdx = clamp(setIdx + 1, 0, view.length - 1);
           diffIdx = 0;
         } else if (k === 'A') {
-          if (mode === 'browsing' && setIdx === 0) mode = 'typing';
-          else setIdx = clamp(setIdx - 1, 0, view.length - 1);
+          setIdx = clamp(setIdx - 1, 0, view.length - 1);
           diffIdx = 0;
         } else if (k === 'D') {
           diffIdx = clamp(diffIdx - 1, 0, Math.max(0, (view[setIdx]?.diffs.length ?? 1) - 1));
@@ -277,8 +284,22 @@ export function browseOnline(songsDir) {
         return draw();
       }
 
-      if (s.length === 1 && s >= ' ' && s <= '~') {
-        mode = 'typing';
+      // w/s only move while browsing — otherwise they would type into the query
+      if (mode === 'browsing') {
+        const k = s.toLowerCase();
+        if (k === 'w' || k === 's' || k === 'a' || k === 'd') {
+          if (!view.length) return;
+          if (k === 'w') setIdx = clamp(setIdx - 1, 0, view.length - 1);
+          else if (k === 's') setIdx = clamp(setIdx + 1, 0, view.length - 1);
+          else if (k === 'a') diffIdx = clamp(diffIdx - 1, 0, Math.max(0, (view[setIdx]?.diffs.length ?? 1) - 1));
+          else if (k === 'd') diffIdx = clamp(diffIdx + 1, 0, Math.max(0, (view[setIdx]?.diffs.length ?? 1) - 1));
+          if (k === 'w' || k === 's') diffIdx = 0;
+          queueCheck();
+          return draw();
+        }
+      }
+
+      if (mode === 'typing' && s.length === 1 && s >= ' ' && s <= '~') {
         query += s;
         return draw();
       }

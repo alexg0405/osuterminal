@@ -42,14 +42,17 @@ osuterminal --list
 
 z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter (gold S, green A, and so on). r retries from there too; enter goes back to song select.
 
+`\` from song select opens the downloader (the search in that screenshot). `/` filters the list you already have. in the downloader, `\` toggles the search field so w/s can move the results without typing into the query.
+
 Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else needed.
 
 ## downloading maps
 
 You don't need osu! installed. Downloads go to `~/osuterminal/Songs` (override with
-`--songs <dir>`). `osuterminal --download` opens a browser: type a query, enter to
-search, arrows to move around, enter again to download. Tab gets you there from song
-select too, and if your Songs folder is empty it just opens automatically.
+`--songs <dir>`). `osuterminal --download` opens a browser, or press `\` from song
+select: type a query, enter to search, `\` to leave the field, w/s to move, enter
+again to download. Tab still gets you there too, and if your Songs folder is empty
+it just opens automatically.
 
 To play maps you already have in osu!, run `osuterminal usesongs`. That only
 reads `%LOCALAPPDATA%\osu!\Songs` (or the equivalent on other OSes) — it does not
@@ -90,11 +93,10 @@ those samples back.
 ## what works
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
-note lock. Hitsounds load from the beatmap folder and fall back to synthesized ones
-when a map doesn't ship them.
+note lock, stacking. Hitsounds load from the beatmap folder and fall back to synthesized
+ones when a map doesn't ship them.
 
-Not done yet: spinners, stacking, HP drain, breaks, mods. Stacking matters most of
-those since stacked patterns currently draw on top of each other.
+Not done yet: spinners, HP drain, breaks, mods.
 
 ## notes on how it works
 
@@ -174,6 +176,8 @@ node tools/engine-spike.mjs  # audio clock
 node tools/render-bench.mjs  # frame timing
 node tools/select-test.mjs   # song select keys
 node tools/result-test.mjs   # ranking grades + results screen
+node tools/stack-test.mjs    # stacked circle offsets
+node tools/browse-test.mjs   # download search keys
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo
 node tools/probe.mjs         # what your terminal supports

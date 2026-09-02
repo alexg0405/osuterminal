@@ -45,7 +45,9 @@
     "test:origin": "node tools/origin-test.mjs",
     "test:library": "node tools/library-test.mjs",
     "test:decode": "node tools/decode-test.mjs",
-    "test:result": "node tools/result-test.mjs"
+    "test:result": "node tools/result-test.mjs",
+    "test:stack": "node tools/stack-test.mjs",
+    "test:browse": "node tools/browse-test.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -33,7 +33,10 @@ check(two.x0 === Math.round(50 - 11 / 2) && two.y0 === Math.round(40 - 7 / 2),
   'two-digit box is centred on the circle');
 
 check(comboPixelSize(4) >= 1, 'tiny circles still get a 1px glyph');
-check(comboPixelSize(30) <= 4, 'pixel size is capped');
+check(comboPixelSize(16) <= 2, 'typical circles stay at 1–2px glyphs');
+check(comboPixelSize(30) <= 2, 'pixel size is capped');
+check(comboPixelSize(16, 1) < comboPixelSize(30, 1) || comboPixelSize(16) === 2,
+  'large circles do not grow past the cap');
 
 console.log('\n=== drawn pixels sit in that box ===');
 const fb = new Framebuffer(80, 40);

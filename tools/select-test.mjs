@@ -51,8 +51,8 @@ const highlighted = () => {
 
 say('\n=== song select keys ===');
 check(shows('w/s song'), 'footer advertises w/s');
-check(shows('\\ to search'), 'footer advertises backslash for search');
-check(shows('tab to download more'), 'header advertises tab for online maps');
+check(shows('\\ to download') || shows('\\ download'), 'footer advertises backslash for download');
+check(shows('/ to filter') || shows('/ filter'), 'header advertises slash to filter this list');
 check(highlighted() === 'Alpha - One', `starts on the first set (${highlighted()})`);
 
 key('s');
@@ -74,9 +74,9 @@ check(shows('Hard'), 'd moves to the next difficulty');
 key('a');
 check(shows('Easy'), 'a moves back');
 
-// search mode
-key('\\');
-check(shows('typing a filter'), 'backslash opens search');
+// local filter is slash. backslash is the downloader.
+key('/');
+check(shows('typing a filter'), 'slash opens search');
 key('g'); key('a');
 check(text().includes('Gamma') && !text().includes('Beta'), 'typing filters the list');
 check(!shows('w/s song'), 'movement hints hidden while typing');
@@ -97,23 +97,23 @@ key('\x1b');
 const result = await pending;
 check(result === null, 'esc in browse mode quits');
 
-// backslash toggles the field: close keeps the filter, w/s move, backslash edits again
+// slash toggles the field: close keeps the filter, w/s move, slash edits again
 {
   const pToggle = selectSong(maps);
-  key('\\');
+  key('/');
   key('g'); key('a');
-  check(shows('typing a filter'), 'backslash opens the field');
+  check(shows('typing a filter'), 'slash opens the field');
   check(text().includes('Gamma') && !text().includes('Beta'), 'typing filters the list');
-  key('\\');
-  check(shows('w/s song'), 'backslash closes the field without clearing it');
+  key('/');
+  check(shows('w/s song'), 'slash closes the field without clearing it');
   check(!shows('typing a filter'), 'not in the text field');
   check(text().includes('Gamma') && !text().includes('Beta'), 'filter is still applied');
   key('s');
-  check(!text().includes('\\gas') && !text().includes('\\gaS'), 's moves instead of appending to the filter');
+  check(!text().includes('/gas') && !text().includes('/gaS') && !text().includes('\\gas'), 's moves instead of appending to the filter');
   check(text().includes('Gamma'), 'filtered list is unchanged by w/s');
-  key('\\');
-  check(shows('typing a filter'), 'backslash opens the field again');
-  check(text().includes('\\ga_') || /\x1b.*\\ga/.test(frame), 'previous text is still in the field');
+  key('/');
+  check(shows('typing a filter'), 'slash opens the field again');
+  check(text().includes('/ga_') || /\x1b.*\/ga/.test(frame), 'previous text is still in the field');
   key('\x1b');
   key('\x1b');
   const r = await pToggle;
@@ -132,6 +132,12 @@ check(result === null, 'esc in browse mode quits');
   key('\t');
   const r = await p3;
   check(r?.type === 'browse', 'tab asks for the downloader');
+}
+{
+  const pSlash = selectSong(maps);
+  key('\\');
+  const r = await pSlash;
+  check(r?.type === 'browse', 'backslash opens the downloader');
 }
 
 {

@@ -214,10 +214,11 @@ const DIGITS = [
 export function comboPixelSize(rad, digits = 1) {
   const n = Math.max(1, digits);
   const width = n * DIGIT_W + (n - 1) * DIGIT_GAP;
-  // keep the glyph inside the circle; floor so it never outgrows a small CS
-  const byH = Math.floor(rad / (DIGIT_H / 2 + 0.5));
-  const byW = Math.floor((rad * 1.6) / width);
-  return Math.max(1, Math.min(byH, byW, 4));
+  // osu combo numbers sit around a third of the diameter. the old rad/4 scale
+  // filled the whole circle (7 * rad/4 is almost 2*rad).
+  const byH = Math.floor(rad / (DIGIT_H + 1));
+  const byW = Math.floor((rad * 1.15) / width);
+  return Math.max(1, Math.min(byH, byW, 2));
 }
 
 export function comboLabelBox(cx, cy, label, pixelSize = 1) {

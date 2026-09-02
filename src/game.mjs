@@ -6,6 +6,7 @@ import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
 import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
+import { applyStacking } from './core/stack.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { stdout } from 'node:process';
 
@@ -103,6 +104,15 @@ export class Game {
       this.objects[i].combo = combo;
       this.objects[i].comboColour = colour;
     }
+
+    // stacked notes share a position in the .osu; shift them up-left so the pile
+    // is visible instead of one disc covering the rest.
+    const stackLeniency = Number(beatmap.general.StackLeniency);
+    applyStacking(this.objects, {
+      preempt: this.diff.preempt,
+      stackLeniency: Number.isFinite(stackLeniency) ? stackLeniency : 0.7,
+      radius: this.diff.radius,
+    });
 
     // lead in. silence gets stuck on the front of the audio so the first object isn't
     // on you the second playback starts. the clock is still the audio clock, song time
@@ -426,8 +436,11 @@ export class Game {
 
     // keep drawing the head circle until the head is judged
     if (!o.headResult) {
-      fb.fillCircle(cx, cy, rad, cr * 0.32, cg * 0.32, cb * 0.32, alpha * 0.85);
-      fb.strokeCircle(cx, cy, rad, 1.8, cr, cg, cb, alpha);
+      const stacked = Math.abs(o.stackHeight ?? 0) > 0;
+      // thinner fill so a stack of discs still shows the ones underneath
+      fb.fillCircle(cx, cy, rad, cr * 0.28, cg * 0.28, cb * 0.28, alpha * (stacked ? 0.55 : 0.72));
+      fb.strokeCircle(cx, cy, rad, stacked ? 2.4 : 2.0, cr, cg, cb, alpha);
+      if (stacked) fb.strokeCircle(cx, cy, rad * 0.78, 1.2, 255, 255, 255, alpha * 0.4);
       if (dt > 0) fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, alpha * 0.75);
       if (rad > 3) fb.drawCombo(cx, cy, o.combo, rad, 255, 255, 255, alpha);
     }

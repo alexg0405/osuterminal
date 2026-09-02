@@ -205,6 +205,7 @@ ${bold('in game')}
   z / x / mouse      hit
   esc                pause, then r retry or q song select
   after a map        results: r retry, enter song select
+  song select        \\ download more   / filter this list
 
 config: ${dim(CONFIG)}
 `);
