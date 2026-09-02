@@ -334,6 +334,15 @@ export class Game {
 
     try {
       while (!quit) {
+        // checking this instead of using stdout's resize event, because going
+        // fullscreen doesn't reliably fire one on windows and comparing two ints
+        // every frame costs nothing
+        if (fb.cols !== stdout.columns || fb.rows !== stdout.rows) {
+          fb = new Framebuffer(stdout.columns, stdout.rows);
+          pf = new Playfield(fb.width, fb.height);
+          stdout.write(`${CSI}2J`);
+        }
+
         player.pump();          // refill finished audio buffers
         this.frameWall = nowMs();
         this.time = player.positionMs() - this.leadInMs - this.audioOffsetMs;
