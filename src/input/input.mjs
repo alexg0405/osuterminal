@@ -23,9 +23,17 @@
 // together that narrows the origin to a one cell wide range. intersect enough of those
 // and you get the exact value. if the window moves the ranges stop overlapping, which
 // is easy to detect, and it starts over.
+//
+// relative mode warps the OS pointer back to screen centre near the edges so you can
+// keep spinning. absolute mode must never do that — before the origin is solved we
+// still read deltas, and after a refocus the pointer is often on the title bar, which
+// used to look "near the edge" and pin the cursor to the middle of the primary display
+// every frame. you could not click out, and on a second monitor you never even had to
+// be near an edge.
 
 import koffi from 'koffi';
 import { stdin, stdout } from 'node:process';
+import { leftoverKeys, focusAfterChunk, mouseWarpEnabled } from './vt.mjs';
 
 const CSI = '\x1b[';
 const nowMs = () => Number(process.hrtime.bigint()) / 1e6;
@@ -55,6 +63,8 @@ export class Input {
   #focused = true;
   #lastScreen = null;
   #origin = { lx: null, ux: null, ly: null, uy: null, x: 0, y: 0, known: false, precision: Infinity };
+  #savedConsoleMode = null;
+  #k32 = null;
 
   // mode 'absolute' sticks to the real mouse, 'relative' integrates deltas.
   // sensitivity only does anything in relative mode.
@@ -105,6 +115,9 @@ export class Input {
     this.#enabled = true;
     stdin.setRawMode(true);
     stdin.resume();
+    // node raw mode does not clear ENABLE_QUICK_EDIT_MODE. a click to focus the
+    // console then enters mark mode, stdin goes silent, and the mouse is captured.
+    this.#setQuickEdit(false);
 
     this.geometry = await this.#queryGeometry();
 
@@ -124,6 +137,7 @@ export class Input {
     this.#enabled = false;
     stdin.off('data', this.#onData);
     stdout.write(`${CSI}?1004l${CSI}?1006l${CSI}?1003l${CSI}?1000l`);
+    this.#setQuickEdit(true);
     try { stdin.setRawMode(false); } catch {}
   }
 
@@ -132,9 +146,8 @@ export class Input {
     const s = chunk.toString('latin1');
 
     const mouse = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
-    let m, consumed = false;
+    let m;
     while ((m = mouse.exec(s))) {
-      consumed = true;
       const code = Number(m[1]);
       const col = Number(m[2]), row = Number(m[3]);
 
@@ -151,11 +164,21 @@ export class Input {
       this.#emit(press ? 'hit' : 'release', { at, source: name, x: this.cellX, y: this.cellY });
     }
 
-    if (s.includes('\x1b[I')) { this.#focused = true; this.#lastScreen = null; consumed = true; }
-    if (s.includes('\x1b[O')) { this.#focused = false; consumed = true; }
-    if (consumed) return;
+    const wasFocused = this.#focused;
+    this.#focused = focusAfterChunk(s, this.#focused);
+    if (this.#focused && !wasFocused) {
+      // window may have moved while we were in another app. click-to-focus can
+      // also leave m1 stuck down from the VT press that never got a release.
+      this.#resetOrigin();
+      this.#lastScreen = null;
+      this.buttons.m1 = false;
+      this.buttons.m2 = false;
+      this.#recomputeAnyDown();
+    }
 
-    for (const ch of s) {
+    // mouse / focus in the same stdin chunk used to drop z, x, esc, ctrl+c
+    const keys = leftoverKeys(s);
+    for (const ch of keys) {
       const lower = ch.toLowerCase();
       const bound = this.keyMap.get(lower);
       if (bound) {
@@ -199,9 +222,45 @@ export class Input {
     o.known = true;
   }
 
+  #resetOrigin() {
+    this.#origin = { lx: null, ux: null, ly: null, uy: null, x: 0, y: 0, known: false, precision: Infinity };
+  }
+
   #recomputeAnyDown() {
     const b = this.buttons;
     this.anyDown = b.m1 || b.m2 || b.k1 || b.k2;
+  }
+
+  // ENABLE_QUICK_EDIT_MODE (0x40) is on by default in conhost. clearing it needs
+  // ENABLE_EXTENDED_FLAGS (0x80) in the same SetConsoleMode call or the bit is ignored.
+  #setQuickEdit(on) {
+    const ENABLE_MOUSE_INPUT = 0x0010;
+    const ENABLE_QUICK_EDIT_MODE = 0x0040;
+    const ENABLE_EXTENDED_FLAGS = 0x0080;
+    try {
+      if (!this.#k32) {
+        const dll = koffi.load('kernel32.dll');
+        this.#k32 = {
+          GetStdHandle: dll.func('void * __stdcall GetStdHandle(int32 nStdHandle)'),
+          GetConsoleMode: dll.func('bool __stdcall GetConsoleMode(void *h, _Out_ uint32 *mode)'),
+          SetConsoleMode: dll.func('bool __stdcall SetConsoleMode(void *h, uint32 mode)'),
+        };
+      }
+      const h = this.#k32.GetStdHandle(-10);
+      if (!h) return;
+      if (!on) {
+        const mode = [0];
+        if (!this.#k32.GetConsoleMode(h, mode)) return;
+        this.#savedConsoleMode = mode[0];
+        this.#k32.SetConsoleMode(
+          h,
+          (mode[0] | ENABLE_EXTENDED_FLAGS) & ~ENABLE_QUICK_EDIT_MODE & ~ENABLE_MOUSE_INPUT,
+        );
+      } else if (this.#savedConsoleMode != null) {
+        this.#k32.SetConsoleMode(h, this.#savedConsoleMode);
+        this.#savedConsoleMode = null;
+      }
+    } catch { /* conpty / missing kernel32 — leave the console as-is */ }
   }
 
   // call every frame. moves the cursor and checks if keys got released.
@@ -224,13 +283,16 @@ export class Input {
         this.cellX = Math.max(0, Math.min(cols, this.cellX + (dx * this.sensitivity) / this.geometry.cellW));
         this.cellY = Math.max(0, Math.min(rows, this.cellY + (dy * this.sensitivity) / this.geometry.cellH));
       }
-      const M = 80;
-      if (p.x < M || p.y < M || p.x > this.screenW - M || p.y > this.screenH - M) {
-        const cx = this.screenW >> 1, cy = this.screenH >> 1;
-        SetCursorPos(cx, cy);
-        this.#lastScreen = { x: cx, y: cy };
-      } else {
-        this.#lastScreen = { x: p.x, y: p.y };
+      this.#lastScreen = { x: p.x, y: p.y };
+      // FPS mouse lock. never in absolute aim, including before origin.known —
+      // that path is what trapped the OS cursor after tabbing back in.
+      if (mouseWarpEnabled(this.mode, this.#origin.known) && this.screenW && this.screenH) {
+        const M = 80;
+        if (p.x < M || p.y < M || p.x > this.screenW - M || p.y > this.screenH - M) {
+          const cx = this.screenW >> 1, cy = this.screenH >> 1;
+          SetCursorPos(cx, cy);
+          this.#lastScreen = { x: cx, y: cy };
+        }
       }
     }
 
