@@ -9,7 +9,7 @@
 //
 // flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
 
-import { readdir, access } from 'node:fs/promises';
+import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -94,18 +94,14 @@ function parseKeys(raw) {
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 
-async function loadLibrary(songsDir) {
+async function loadFromDir(root) {
   let dirs;
-  try { dirs = await readdir(songsDir, { withFileTypes: true }); }
-  catch {
-    throw new Error(`Cannot read the songs folder:\n  ${songsDir}\n\n` +
-      `Point somewhere else with  --songs <dir>  (it will be remembered).`);
-  }
-
+  try { dirs = await readdir(root, { withFileTypes: true }); }
+  catch { return []; }
   const maps = [];
   for (const d of dirs) {
     if (!d.isDirectory()) continue;
-    const dir = path.join(songsDir, d.name);
+    const dir = path.join(root, d.name);
     let files;
     try { files = await readdir(dir); } catch { continue; }
     for (const f of files) {
@@ -117,6 +113,26 @@ async function loadLibrary(songsDir) {
     }
   }
   return maps;
+}
+
+const BUNDLED = path.join(HERE, '..', 'bundled');
+
+async function loadLibrary(songsDir) {
+  try { await readdir(songsDir); }
+  catch (err) {
+    // no osu! install (or first run) — create the folder so downloads have somewhere to go
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      try { await mkdir(songsDir, { recursive: true }); }
+      catch {
+        throw new Error(`Cannot create the songs folder:\n  ${songsDir}\n\n` +
+          `Point somewhere else with  --songs <dir>  (it will be remembered).`);
+      }
+    } else {
+      throw new Error(`Cannot read the songs folder:\n  ${songsDir}\n\n` +
+        `Point somewhere else with  --songs <dir>  (it will be remembered).`);
+    }
+  }
+  return [...await loadFromDir(BUNDLED), ...await loadFromDir(songsDir)];
 }
 
 function printList(maps) {
@@ -163,7 +179,7 @@ ${bold('options')}
 
 ${bold('in game')}
   z / x / mouse      hit
-  esc                pause, then r retry or q quit
+  esc                pause, then r retry or q song select
 
 config: ${dim(CONFIG)}
 `);
@@ -207,6 +223,7 @@ async function main() {
   }
 
   let maps = await loadLibrary(args.songs);
+  if (args.list) return printList(maps);
 
   // an empty library used to be a dead end. now it just means you need maps.
   if (!maps.length) {
@@ -220,20 +237,24 @@ async function main() {
     if (!maps.length) return;
   }
 
-  if (args.list) return printList(maps);
-
   const q = args.terms.join(' ').toLowerCase();
+  let startMap = null;
   if (q) {
     const matches = maps
       .filter((b) => `${b.artist} ${b.title} ${b.diffName} ${b.creator}`.toLowerCase().includes(q))
       .sort((a, b) => a.difficulty.ar - b.difficulty.ar);
     if (!matches.length) throw new Error(`No map matches "${q}". Try --list, or run with no arguments to browse.`);
-    return play(matches[clampIndex((args.diff ?? 1) - 1, matches.length)], args, cfg);
+    startMap = matches[clampIndex((args.diff ?? 1) - 1, matches.length)];
   }
 
   if (!stdout.isTTY) throw new Error('Song select needs a terminal. Use --list, or pass a search term.');
 
-  // loop so tab can bounce out to the downloader and come back with a bigger library
+  if (startMap) {
+    const result = await play(startMap, args, cfg);
+    if (result?.quitApp) return;
+  }
+
+  // loop so tab can bounce out to the downloader and q from pause comes back here
   for (;;) {
     const action = await selectSong(maps);
     if (!action) return;
@@ -242,7 +263,8 @@ async function main() {
       if (got) maps = await loadLibrary(args.songs);
       continue;
     }
-    return play(action.map, args, cfg);
+    const result = await play(action.map, args, cfg);
+    if (result?.quitApp) return;
   }
 }
 
@@ -298,11 +320,13 @@ async function play(chosen, args, cfg) {
   console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause`));
   await new Promise((r) => setTimeout(r, 700));
 
-  // retry from the pause screen just replays the same map
+  // retry from the pause screen just replays the same map. q goes back to song select.
   for (;;) {
     const result = await game.run(audio);
-    if (!result.restart) return printResult(result);
-    game.reset();
+    if (result.restart) { game.reset(); continue; }
+    if (result.quitApp) return { quitApp: true };
+    if (!result.toMenu) printResult(result);
+    return { toMenu: true };
   }
 }
 

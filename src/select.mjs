@@ -3,9 +3,8 @@
 // sets on the left, difficulties of the highlighted set on the right.
 //
 // two modes. browsing is the default: w/s or up/down move between songs, a/d or
-// left/right pick a difficulty. backslash switches to searching, where typing filters
-// the list, and enter or esc goes back to browsing. it needs the split because
-// otherwise w and s would type into the search instead of moving.
+// left/right pick a difficulty. backslash (or slash) filters the list; tab opens
+// the online downloader. the list scrolls — header shows which slice you are on.
 //
 // this uses plain ANSI instead of the framebuffer because it's all text, and text
 // needs real characters rather than half blocks.
@@ -75,19 +74,30 @@ export function selectSong(maps) {
 
     const draw = () => {
       const rows = stdout.rows ?? 24, cols = stdout.columns ?? 80;
-      const listH = rows - 6;
-      const leftW = Math.max(24, Math.min(52, Math.floor(cols * 0.5)));
-      const rightW = cols - leftW - 3;
+      // 5 lines of chrome: title, search, blank, detail, footer
+      const listH = Math.max(3, rows - 5);
+      // '  ' + left + ' | ' + right must equal cols or the terminal wraps and
+      // eats the songs below, which looked like the list just stopping.
+      const gutter = 2, div = 3;
+      const leftW = Math.max(18, Math.min(48, Math.floor((cols - gutter - div) * 0.58)));
+      const rightW = Math.max(0, cols - gutter - div - leftW);
 
       if (setIdx < scroll) scroll = setIdx;
       if (setIdx >= scroll + listH) scroll = setIdx - listH + 1;
+      scroll = clamp(scroll, 0, Math.max(0, filtered.length - listH));
 
       const out = [`${CSI}H${CSI}J`];
-      out.push(`${BRIGHT}  osuterminal${RESET}${DIM}   ${filtered.length} sets`);
+      const from = filtered.length ? scroll + 1 : 0;
+      const to = Math.min(filtered.length, scroll + listH);
+      const more = filtered.length > to ? `  ${to < filtered.length ? '▼' : ''}` : '';
+      const above = scroll > 0 ? '▲ ' : '';
+      out.push(`${BRIGHT}  osuterminal${RESET}${DIM}   ${filtered.length} set${filtered.length === 1 ? '' : 's'}`);
+      if (filtered.length) out.push(`${DIM}   ${above}${from}-${to}${RESET}${more}`);
+      out.push('\r\n');
       out.push(searching ? `   ${ACCENT}\\${query}_${RESET}`
         : query ? `   ${ACCENT}\\${query}${RESET}${DIM} (backspace clears)${RESET}`
-        : `   ${DIM}\\ to search${RESET}`);
-      out.push('\r\n\r\n');
+        : `   ${DIM}\\ to search this list   tab to download more${RESET}`);
+      out.push('\r\n');
 
       const cur = filtered[setIdx];
       for (let i = 0; i < listH; i++) {
@@ -96,20 +106,19 @@ export function selectSong(maps) {
         if (idx < filtered.length) {
           const s = filtered[idx];
           const sel = idx === setIdx;
-          const label = pad(`${s.artist} - ${s.title}`, leftW - 2);
+          const label = pad(`${s.artist} - ${s.title}`, Math.max(4, leftW - 2));
           out.push(sel ? `${bg(0x2a3040)}${BRIGHT} ${label} ${RESET}` : `${TEXT} ${label} ${RESET}`);
         } else {
           out.push(' '.repeat(leftW));
         }
 
-        // right side, difficulties of the highlighted set
         out.push(`${DIM} | ${RESET}`);
-        if (cur && i < cur.diffs.length && rightW > 20) {
+        if (cur && i < cur.diffs.length && rightW > 16) {
           const b = cur.diffs[i];
           const sel = i === diffIdx;
           const d = b.difficulty;
-          const stats = `CS${d.cs} AR${d.ar} OD${d.od}  ${String(b.hitObjects.length).padStart(4)}`;
-          const name = pad(b.diffName, Math.max(8, rightW - stats.length - 4));
+          const stats = `CS${d.cs} AR${d.ar} OD${d.od}`;
+          const name = pad(b.diffName, Math.max(4, rightW - stats.length - 4));
           const tint = difficultyTint(b);
           out.push(sel ? `${bg(0x3a2438)}${tint}> ${name} ${DIM}${stats}${RESET}`
                        : `${tint}  ${name} ${DIM}${stats}${RESET}`);
@@ -117,18 +126,17 @@ export function selectSong(maps) {
         out.push('\r\n');
       }
 
-      out.push('\r\n');
       if (cur && cur.diffs[diffIdx]) {
         const b = cur.diffs[diffIdx];
         const d = b.difficulty;
-        out.push(`  ${GOLD}${pad(b.diffName, 24)}${RESET}${DIM} by ${b.creator}   ` +
+        out.push(`  ${GOLD}${pad(b.diffName, Math.min(24, cols - 8))}${RESET}${DIM} by ${b.creator}   ` +
           `300:±${d.windows.great.toFixed(0)}ms  preempt ${d.preempt.toFixed(0)}ms${RESET}\r\n`);
       } else {
         out.push(`  ${DIM}no matches${RESET}\r\n`);
       }
       out.push(searching
         ? `  ${DIM}typing a filter   enter or esc to stop${RESET}`
-        : `  ${DIM}w/s song   a/d difficulty   enter play   \\ search   tab download   esc quit${RESET}`);
+        : `  ${DIM}w/s song   enter play   \\ search   tab download   esc quit${RESET}`);
       stdout.write(out.join(''));
     };
 
@@ -178,7 +186,7 @@ export function selectSong(maps) {
 
       // ---- browsing ----
       if (s === '\x1b') return finish(null);
-      if (s === '\\') { searching = true; return draw(); }
+      if (s === '\\' || s === '/') { searching = true; return draw(); }
       if (s === '\t') return finish({ type: 'browse' });
       if (s === '\r' || s === '\n') {
         const cur = filtered[setIdx];

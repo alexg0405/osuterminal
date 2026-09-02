@@ -52,6 +52,7 @@ const highlighted = () => {
 say('\n=== song select keys ===');
 check(shows('w/s song'), 'footer advertises w/s');
 check(shows('\\ to search'), 'footer advertises backslash for search');
+check(shows('tab to download more'), 'header advertises tab for online maps');
 check(highlighted() === 'Alpha - One', `starts on the first set (${highlighted()})`);
 
 key('s');
@@ -108,6 +109,27 @@ check(result === null, 'esc in browse mode quits');
   key('\t');
   const r = await p3;
   check(r?.type === 'browse', 'tab asks for the downloader');
+}
+
+{
+  const lots = [];
+  for (let i = 0; i < 30; i++)
+    lots.push(mk('N', `Song${String(i).padStart(2, '0')}`, 'Easy', 4));
+  fout.rows = 16;
+  const p4 = selectSong(lots);
+  check(shows('30 set'), 'header shows the full set count');
+  check(shows('▼') || /1-\d+/.test(text()), 'header shows a window, not only ten songs');
+  check(!shows('Song20'), 'later songs start offscreen');
+  for (let i = 0; i < 20; i++) key('s');
+  check(shows('Song20'), 's scrolls the window to later songs');
+  key('/');
+  check(shows('typing a filter'), 'slash also opens search');
+  key('\x1b');
+  check(shows('w/s song'), 'esc leaves search mode');
+  key('\x1b');
+  const r = await p4;
+  check(r === null, 'esc still quits after scrolling');
+  fout.rows = 30;
 }
 
 Object.defineProperty(proc, 'stdin', { value: realIn, configurable: true });

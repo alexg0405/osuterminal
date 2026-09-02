@@ -3,21 +3,27 @@
 osu!standard in a terminal, with mouse aim and hit circles.
 
 Reads your existing osu! Songs folder, or downloads maps for you if you don't have one.
+Two easy beginner maps (Warmup and First Steps) ship with the package so you can play immediately.
 
 ## install
 
+PowerShell's default execution policy blocks `.ps1` shims, including the `npm` that
+ships with Node. Call the `.cmd` instead:
+
 ```bash
-npm install -g .
+npm.cmd install -g osuterminal
 ```
 
-Then `osuterminal` works from anywhere.
+Then `osuterminal` works from anywhere. If PowerShell blocks that too, run
+`osuterminal.cmd`. `npx.cmd osuterminal` also works without a global install.
 
-If PowerShell gives you a security error instead of running it, npm generated a .ps1
-launcher and the default execution policy refuses to run scripts. Delete the .ps1 next
-to `osuterminal.cmd` in your npm folder and PowerShell will use the .cmd instead.
-Current npm versions don't create it at all.
+To make the plain `npm` / `osuterminal` names work in PowerShell:
 
-Or skip installing and run `node src/main.mjs` from the repo.
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+From the GitHub repo instead of npm: `npm.cmd install -g alexg0405/osuterminal`.
 
 ## usage
 
@@ -31,7 +37,7 @@ osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q quits.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select.
 
 Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else needed.
 

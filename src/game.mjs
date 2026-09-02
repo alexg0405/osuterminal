@@ -319,7 +319,7 @@ export class Game {
 
     this.time = 0;
     this.frameWall = nowMs();
-    let quit = false, paused = false, restart = false;
+    let quit = false, paused = false, restart = false, toMenu = false, quitApp = false;
 
     input.on('hit', ({ at }) => { if (!paused) this.handleHit(at); });
     const setPaused = (v) => {
@@ -329,11 +329,11 @@ export class Game {
     };
 
     input.on('key', ({ ch }) => {
-      if (ch === '\x03') { quit = true; return; }
+      if (ch === '\x03') { quitApp = true; quit = true; return; }
       // escape opens the pause screen instead of dumping you out mid map
       if (ch === '\x1b' || ch === ' ') { setPaused(!paused); return; }
       if (paused) {
-        if (ch === 'q') quit = true;
+        if (ch === 'q') { toMenu = true; quit = true; }
         else if (ch === 'r') { restart = true; quit = true; }
       }
     });
@@ -379,7 +379,7 @@ export class Game {
       stdout.write(`${CSI}?25h${CSI}?1049l`);
     }
 
-    return { ...this.#summary(), restart };
+    return { ...this.#summary(), restart, toMenu, quitApp };
   }
 
   // ------------------------------------------------------------- rendering
@@ -535,7 +535,7 @@ export class Game {
     fb.textCentered(row, '  paused  ', 0x000000, 0xffd257);
     fb.textCentered(row + 2, 'esc  resume', 0xc8d0dc);
     fb.textCentered(row + 3, 'r    retry', 0x8a94a8);
-    fb.textCentered(row + 4, 'q    quit', 0x8a94a8);
+    fb.textCentered(row + 4, 'q    menu', 0x8a94a8);
   }
 
   // shown while song time is negative, so during the lead in
