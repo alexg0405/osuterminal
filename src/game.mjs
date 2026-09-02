@@ -11,7 +11,7 @@ import { applyStacking } from './core/stack.mjs';
 import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
-import { loadBackground, coverScale, BG_DIM } from './render/background.mjs';
+import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
 import { JUDGE, drawJudgementLegend, drawHitErrorBar } from './render/hud.mjs';
 import { stdout } from 'node:process';
 
@@ -48,6 +48,7 @@ export class Game {
   constructor(beatmap, {
     audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'],
     masterVolume = 0.8, musicVolume = 1, effectVolume = 1, onVolume = null,
+    showBackground = true, onBackground = null,
   } = {}) {
     this.map = beatmap;
     this.diff = beatmap.difficulty;
@@ -59,6 +60,8 @@ export class Game {
     this.musicVolume = clampVolume(musicVolume, 1);
     this.effectVolume = clampVolume(effectVolume, 1);
     this.onVolume = onVolume;
+    this.showBackground = backgroundVisible(showBackground);
+    this.onBackground = onBackground;
     this.volumeToast = null;
 
     const src = beatmap.hitObjects.filter((o) => !o.isSpinner);
@@ -279,6 +282,14 @@ export class Game {
     return true;
   }
 
+  #handleBackgroundKey(ch) {
+    if (ch !== 'b' && ch !== 'B') return false;
+    this.showBackground = !this.showBackground;
+    this.volumeToast = { which: 'showBackground', until: nowMs() + 1400 };
+    this.onBackground?.(this.showBackground);
+    return true;
+  }
+
   #advance() {
     while (this.nextIndex < this.objects.length && this.objects[this.nextIndex].headResult)
       this.nextIndex++;
@@ -377,6 +388,7 @@ export class Game {
     input.on('key', ({ ch }) => {
       if (ch === '\x03') { quitApp = true; quit = true; return; }
       if (this.#handleVolumeKey(ch)) return;
+      if (this.#handleBackgroundKey(ch)) return;
       // escape opens the pause screen instead of dumping you out mid map
       if (ch === '\x1b' || ch === ' ') { setPaused(!paused); return; }
       if (paused) {
@@ -455,7 +467,7 @@ export class Game {
   }
 
   #blitBackground(fb) {
-    if (!this.#bgSrc) return false;
+    if (!backgroundVisible(this.showBackground) || !this.#bgSrc) return false;
     if (!this.#bgFit || this.#bgFit.w !== fb.width || this.#bgFit.h !== fb.height) {
       this.#bgFit = {
         w: fb.width, h: fb.height,
@@ -467,6 +479,11 @@ export class Game {
 
   #drawVolumeToast(fb, paused) {
     if (paused || !this.volumeToast || nowMs() > this.volumeToast.until) return;
+    if (this.volumeToast.which === 'showBackground') {
+      const text = `  background ${backgroundLabel(this.showBackground)}  `;
+      fb.textCentered(Math.min(fb.rows - 3, Math.floor(fb.rows / 2) + 5), text, 0xffd257, 0x12121a);
+      return;
+    }
     const label = { masterVolume: 'volume', musicVolume: 'music', effectVolume: 'hitsounds' }[this.volumeToast.which];
     const text = `  ${label} ${volumePercent(this[this.volumeToast.which])}  `;
     fb.textCentered(Math.min(fb.rows - 3, Math.floor(fb.rows / 2) + 5), text, 0xffd257, 0x12121a);
@@ -592,9 +609,10 @@ export class Game {
     fb.textCentered(row + 2, `-/=  volume    ${volumePercent(this.masterVolume)}`, 0xc8d0dc);
     fb.textCentered(row + 3, `[/]  music     ${volumePercent(this.musicVolume)}`, 0x8a94a8);
     fb.textCentered(row + 4, `,/.  hitsounds ${volumePercent(this.effectVolume)}`, 0x8a94a8);
-    fb.textCentered(row + 6, 'esc  resume', 0xc8d0dc);
-    fb.textCentered(row + 7, 'r    retry', 0x8a94a8);
-    fb.textCentered(row + 8, 'q    menu', 0x8a94a8);
+    fb.textCentered(row + 5, `b    background ${backgroundLabel(this.showBackground)}`, 0x8a94a8);
+    fb.textCentered(row + 7, 'esc  resume', 0xc8d0dc);
+    fb.textCentered(row + 8, 'r    retry', 0x8a94a8);
+    fb.textCentered(row + 9, 'q    menu', 0x8a94a8);
   }
 
   // shown while song time is negative, so during the lead in

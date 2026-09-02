@@ -113,7 +113,6 @@ $npm = Get-NpmCmd
 if (-not $npm) { throw 'npm.cmd not found. Reinstall Node.js from https://nodejs.org and re-run.' }
 
 Say "npm  $npm" 'DarkGray'
-$env:OSUTERMINAL_QUIET_HELLO = '1'
 Say "installing $NpmPackage globally..." 'Yellow'
 & $npm install -g $NpmPackage
 if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE)." }

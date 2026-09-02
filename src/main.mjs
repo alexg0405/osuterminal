@@ -9,7 +9,7 @@
 //   osuterminal usesongs            include maps from the osu! Songs folder
 //   osuterminal --no-import-osu     skip the osu! Songs folder
 //
-// flags: --offset <ms>  --volume <n>  --relative [--sens <n>]  --songs <dir>
+// flags: --offset <ms>  --volume <n>  --no-bg  --relative [--sens <n>]  --songs <dir>
 
 import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -27,6 +27,7 @@ import { browseOnline } from './net/browse.mjs';
 import { search as searchMirror, download as downloadSet } from './net/mirror.mjs';
 import { extractOsz } from './net/osz.mjs';
 import { clampVolume, parseVolumeArg } from './volume.mjs';
+import { parseBackgroundFlag, backgroundVisible } from './render/background.mjs';
 import {
   defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
   libraryRoots, mergeMaps, parseImportOsuArg,
@@ -62,6 +63,8 @@ function parseArgs(argv, cfg) {
     masterVolume: clampVolume(cfg.masterVolume, 0.8),
     musicVolume: clampVolume(cfg.musicVolume, 1),
     effectVolume: clampVolume(cfg.effectVolume, 1),
+    showBackground: backgroundVisible(cfg.showBackground),
+    bgFlag: null,                 // 'on' | 'off' when they passed a flag this run
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -76,6 +79,8 @@ function parseArgs(argv, cfg) {
     else if (a === '--absolute') out.aimMode = 'absolute';
     else if (a === '--songs') out.songs = argv[++i];
     else {
+      const bg = parseBackgroundFlag(a);
+      if (bg !== null) { out.showBackground = bg; out.bgFlag = bg ? 'on' : 'off'; continue; }
       const imp = parseImportOsuArg(a);
       if (imp === 'on') { out.importOsu = true; out.importOsuFlag = 'on'; }
       else if (imp === 'off') { out.importOsu = false; out.importOsuFlag = 'off'; }
@@ -204,6 +209,8 @@ ${bold('options')}
       --sens <n>     sensitivity, relative mode only
       --offset <ms>  audio offset override ${dim('(default 0, remembered after --calibrate)')}
       --volume <n>   master volume 0–100 ${dim('(remembered)')}
+      --no-bg        hide beatmap backgrounds ${dim('(remembered, b toggles)')}
+      --bg           show beatmap backgrounds again
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
       --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
@@ -216,6 +223,7 @@ ${bold('in game')}
   - / =              master volume
   [ / ]              music volume
   , / .              hitsounds
+  b                  hide / show beatmap background
   esc                pause, then r retry or q song select
   after a map        results: r retry, enter song select
   song select        \\ download more   / filter this list
@@ -238,6 +246,8 @@ async function main() {
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
   if (process.argv.includes('--volume')) saveConfig({ masterVolume: args.masterVolume });
+  if (args.bgFlag === 'on') saveConfig({ showBackground: true });
+  if (args.bgFlag === 'off') saveConfig({ showBackground: false });
 
   if (args.importOsuFlag === 'on') saveConfig({ importOsu: true });
   if (args.importOsuFlag === 'off') saveConfig({ importOsu: false });
@@ -377,7 +387,9 @@ async function play(chosen, args) {
   const game = new Game(chosen, {
     audioOffsetMs: args.offset, sensitivity: args.sens, aimMode: args.aimMode, keys: args.keys,
     masterVolume: args.masterVolume, musicVolume: args.musicVolume, effectVolume: args.effectVolume,
+    showBackground: args.showBackground,
     onVolume: (v) => saveConfig(v),
+    onBackground: (showBackground) => saveConfig({ showBackground }),
   });
   await game.prepareAudio(audio.sampleRate);
   console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause   -/= volume`));

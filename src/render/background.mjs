@@ -15,6 +15,21 @@ export const BG_DIM = 0.22;
 export const MAX_BG_BYTES = 12_000_000;
 export const MAX_BG_PIXELS = 12_000_000;
 
+// missing config and anything other than an explicit false means the picture is on.
+export function backgroundVisible(showBackground) {
+  return showBackground !== false;
+}
+
+export function parseBackgroundFlag(a) {
+  if (a === '--no-bg' || a === '--no-background' || a === '--hide-background') return false;
+  if (a === '--bg' || a === '--background') return true;
+  return null;
+}
+
+export function backgroundLabel(on) {
+  return backgroundVisible(on) ? 'on' : 'off';
+}
+
 export function rgbaToRgb(data, width, height) {
   const n = width * height;
   const out = new Uint8Array(n * 3);
