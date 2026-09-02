@@ -32,7 +32,7 @@ function difficultyTint(b) {
 
 const pad = (s, n) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s.padEnd(n));
 
-// returns the chosen map, or null if they backed out
+// returns { type: 'play', map } or { type: 'browse' }, or null if they backed out
 export function selectSong(maps) {
   return new Promise((resolve) => {
     // group into sets, easiest difficulty first
@@ -112,7 +112,7 @@ export function selectSong(maps) {
       } else {
         out.push(`  ${DIM}no matches${RESET}\r\n`);
       }
-      out.push(`  ${DIM}up/down set   left/right difficulty   enter play   esc quit${RESET}`);
+      out.push(`  ${DIM}up/down set   left/right difficulty   enter play   tab download more   esc quit${RESET}`);
       stdout.write(out.join(''));
     };
 
@@ -132,9 +132,10 @@ export function selectSong(maps) {
       const s = chunk.toString('latin1');
 
       if (s === '\x1b' || s === '\x03') return finish(null);
+      if (s === '\t') return finish({ type: 'browse' });
       if (s === '\r' || s === '\n') {
         const cur = filtered[setIdx];
-        return cur ? finish(cur.diffs[diffIdx]) : undefined;
+        return cur ? finish({ type: 'play', map: cur.diffs[diffIdx] }) : undefined;
       }
       if (s === '\x7f' || s === '\b') { query = query.slice(0, -1); refilter(); return draw(); }
 
