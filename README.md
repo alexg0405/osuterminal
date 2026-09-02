@@ -35,6 +35,7 @@ osuterminal usesongs              # include your existing osu! Songs folder
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
+osuterminal --calibrate           # measure audio offset
 osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
@@ -73,11 +74,18 @@ osuterminal --search "nekodex"    # prints ids
 osuterminal --get 354366
 ```
 
-## timing
+## calibration
+
+Offset defaults to 0. If hits feel early or late on your setup, `osuterminal --calibrate`
+plays a metronome, you tap along to what you hear, and it saves your number to
+`~/.osuterminal.json`. `--offset <ms>` overrides it for one run.
+
+Audio latency comes from the sound device, your headphones, the terminal, and your own
+reaction time. There's no way to calculate it, you have to measure it.
 
 mpg123 strips the LAME encoder delay when it decodes mp3s but osu's decoder doesn't,
 so maps would end up ~13ms early and every hit would read as late. decode.mjs adds
-those samples back. There is no extra audio offset to set.
+those samples back.
 
 ## what works
 

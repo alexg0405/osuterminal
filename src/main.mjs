@@ -5,17 +5,18 @@
 //   osuterminal <search>            straight into the first match
 //   osuterminal <search> -d 3       pick difficulty 3
 //   osuterminal --list              print the library
+//   osuterminal --calibrate         measure audio offset
 //   osuterminal usesongs            include maps from the osu! Songs folder
 //   osuterminal --no-import-osu     skip the osu! Songs folder
 //
-// flags: --relative [--sens <n>]  --songs <dir>
+// flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
 
 import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import readline from 'node:readline/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { stdout, stdin } from 'node:process';
 import { Beatmap } from './core/beatmap.mjs';
 import { decodeAudio } from './audio/decode.mjs';
@@ -32,7 +33,7 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // config goes in the home directory instead of next to the source, so a global
-// install keeps keys and the songs folder no matter where you run it from.
+// install keeps its calibration no matter where you run it from.
 const CONFIG = path.join(os.homedir(), '.osuterminal.json');
 
 function loadConfig() {
@@ -47,8 +48,9 @@ export function saveConfig(patch) {
 
 function parseArgs(argv, cfg) {
   const out = {
-    terms: [], diff: null, list: false, help: false,
+    terms: [], diff: null, list: false, calibrate: false, help: false,
     online: null, get: null, download: false,
+    offset: cfg.audioOffsetMs ?? 0,
     sens: cfg.sensitivity ?? 1.0,
     keys: cfg.keys ?? ['z', 'x'],
     aimMode: cfg.aimMode ?? 'absolute',
@@ -59,6 +61,7 @@ function parseArgs(argv, cfg) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-d' || a === '--diff') out.diff = Number(argv[++i]);
+    else if (a === '--offset') out.offset = Number(argv[++i]);
     else if (a === '--sens') out.sens = Number(argv[++i]);
     else if (a === '--relative') out.aimMode = 'relative';
     else if (a === '--absolute') out.aimMode = 'absolute';
@@ -69,6 +72,7 @@ function parseArgs(argv, cfg) {
       else if (imp === 'off') { out.importOsu = false; out.importOsuFlag = 'off'; }
       else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
       else if (a === '--list' || a === '-l') out.list = true;
+      else if (a === '--calibrate' || a === '-c') out.calibrate = true;
       else if (a === '--help' || a === '-h') out.help = true;
       else if (a === '--search') out.online = argv[++i];
       else if (a === '--get') out.get = argv[++i];
@@ -181,12 +185,14 @@ ${bold('osuterminal')}  osu!standard in your terminal
   ${bold('osuterminal <search> -d 3')}    ...choosing the 3rd difficulty
   ${bold('osuterminal --download')}       browse and download beatmaps
   ${bold('osuterminal --list')}           print your library
+  ${bold('osuterminal --calibrate')}      measure your audio offset
 
 ${bold('options')}
   -d, --diff <n>     difficulty index within the matched set
       --keys <ab>    tap keys, default zx ${dim('(remembered)')}
       --relative     relative aim instead of absolute ${dim('(cursor stops tracking your mouse)')}
       --sens <n>     sensitivity, relative mode only
+      --offset <ms>  audio offset override ${dim('(default 0, remembered after --calibrate)')}
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
       --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
@@ -207,6 +213,11 @@ async function main() {
   const args = parseArgs(process.argv.slice(2), cfg);
 
   if (args.help) return printHelp();
+  if (args.calibrate) {
+    // needs pathToFileURL, a plain windows path isn't a valid import specifier
+    await import(pathToFileURL(path.join(HERE, '..', 'tools', 'calibrate.mjs')).href);
+    return;
+  }
 
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
@@ -347,7 +358,7 @@ async function play(chosen, args) {
     throw new Error(`Terminal too small: ${stdout.columns}x${stdout.rows} (need at least 60x20).`);
 
   const game = new Game(chosen, {
-    sensitivity: args.sens, aimMode: args.aimMode, keys: args.keys,
+    audioOffsetMs: args.offset, sensitivity: args.sens, aimMode: args.aimMode, keys: args.keys,
   });
   await game.prepareAudio(audio.sampleRate);
   console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause`));
