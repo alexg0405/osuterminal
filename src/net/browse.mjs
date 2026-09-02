@@ -5,7 +5,7 @@
 // different app.
 
 import { stdin, stdout } from 'node:process';
-import { search, download } from './mirror.mjs';
+import { search, download, checkAvailable, NotHostedError } from './mirror.mjs';
 import { extractOsz, alreadyHave } from './osz.mjs';
 
 const CSI = '\x1b[';
@@ -49,6 +49,11 @@ export function browseOnline(songsDir) {
     let downloaded = 0;
     let owned = new Set();
     let done = false;
+    // search comes from osu's metadata so a lot of results are not actually hosted.
+    // check the highlighted one in the background rather than letting you find out
+    // after picking it.
+    const avail = new Map();          // setId -> true | false | 'checking'
+    let availTimer = null;
 
     const draw = () => {
       const rows = stdout.rows ?? 24, cols = stdout.columns ?? 80;
@@ -73,7 +78,11 @@ export function browseOnline(songsDir) {
           const s = results[idx];
           const sel = idx === setIdx && mode === 'browsing';
           const have = owned.has(s.id);
-          const mark = have ? `${GREEN}+${RESET}` : ' ';
+          const a = avail.get(s.id);
+          // + already downloaded, x nobody hosts it, ? still checking
+          const mark = have ? `${GREEN}+${RESET}`
+            : a === false ? `${RED}x${RESET}`
+            : a === 'checking' ? `${DIM}?${RESET}` : ' ';
           const label = pad(`${s.artist} - ${s.title}`, leftW - 4);
           out.push(mark + (sel ? `${bg(0x2a3040)}${BRIGHT} ${label} ${RESET}` : `${TEXT} ${label} ${RESET}`));
         } else {
@@ -106,6 +115,21 @@ export function browseOnline(songsDir) {
       stdout.write(out.join(''));
     };
 
+    const queueAvailCheck = () => {
+      const s2 = results[setIdx];
+      if (!s2 || avail.has(s2.id) || owned.has(s2.id)) return;
+      clearTimeout(availTimer);
+      availTimer = setTimeout(async () => {
+        const id = results[setIdx]?.id;
+        if (!id || avail.has(id)) return;
+        avail.set(id, 'checking');
+        draw();
+        const { available } = await checkAvailable(id);
+        avail.set(id, available);
+        if (!done) draw();
+      }, 350);
+    };
+
     const refreshOwned = async () => {
       owned = new Set();
       for (const r of results) if (await alreadyHave(songsDir, r.id)) owned.add(r.id);
@@ -123,6 +147,7 @@ export function browseOnline(songsDir) {
         await refreshOwned();
         statusLine = r.length ? `${r.length} sets from ${mirror}` : 'nothing found';
         mode = r.length ? 'browsing' : 'typing';
+        queueAvailCheck();
       } catch (e) {
         results = [];
         statusLine = `search failed: ${e.message}`;
@@ -155,7 +180,12 @@ export function browseOnline(songsDir) {
         owned.add(s.id);
         statusLine = `${GREEN}saved ${r.osuCount} difficulties to ${r.folder}${RESET}${DIM}`;
       } catch (e) {
-        statusLine = `${RED}failed: ${e.message}${RESET}${DIM}`;
+        if (e instanceof NotHostedError) {
+          avail.set(s.id, false);
+          statusLine = `${RED}no mirror has this one${RESET}${DIM} (search lists maps that are not hosted anywhere)`;
+        } else {
+          statusLine = `${RED}failed${RESET}${DIM} ${e.message}`;
+        }
       }
       busy = false;
       draw();
@@ -164,6 +194,7 @@ export function browseOnline(songsDir) {
     const finish = () => {
       if (done) return;
       done = true;
+      clearTimeout(availTimer);
       stdin.off('data', onKey);
       stdout.off('resize', draw);
       try { stdin.setRawMode(false); } catch {}
@@ -205,6 +236,7 @@ export function browseOnline(songsDir) {
         } else if (k === 'C') {
           diffIdx = clamp(diffIdx + 1, 0, Math.max(0, (results[setIdx]?.diffs.length ?? 1) - 1));
         }
+        queueAvailCheck();
         return draw();
       }
 
