@@ -34,7 +34,7 @@ PowerShell's default execution policy blocks `.ps1` shims, including the `npm` a
 If you already have Node 20+:
 
 ```bash
-npm.cmd install -g osuterminal
+npm.cmd install -g osuterminal or npm install -g osuterminal
 ```
 
 When that finishes it prints **Type osuterminal to start**. If PowerShell blocks the
