@@ -6,22 +6,23 @@ Reads your existing osu! Songs folder, or downloads maps for you if you don't ha
 
 ## install
 
-```bash
-npm install -g osuterminal
-```
-
-Then `osuterminal` works from anywhere. `npx osuterminal` also works without a global install.
-
-From the GitHub repo instead of npm:
+PowerShell's default execution policy blocks `.ps1` shims, including the `npm` that
+ships with Node. Call the `.cmd` instead:
 
 ```bash
-npm install -g alexg0405/osuterminal
+npm.cmd install -g osuterminal
 ```
 
-If PowerShell gives you a security error instead of running it, npm generated a .ps1
-launcher and the default execution policy refuses to run scripts. Delete the .ps1 next
-to `osuterminal.cmd` in your npm folder and PowerShell will use the .cmd instead.
-Current npm versions don't create it at all.
+Then `osuterminal` works from anywhere. If PowerShell blocks that too, run
+`osuterminal.cmd`. `npx.cmd osuterminal` also works without a global install.
+
+To make the plain `npm` / `osuterminal` names work in PowerShell:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+From the GitHub repo instead of npm: `npm.cmd install -g alexg0405/osuterminal`.
 
 ## usage
 
