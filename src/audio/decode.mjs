@@ -1,15 +1,77 @@
 // decode the song to interleaved 16 bit PCM.
 // mp3 goes through a wasm decoder so no compiler is needed. wav is parsed here.
+//
+// everything comes out 44100 stereo. waveOut on a lot of windows machines will
+// open 22050/mono just fine and then never actually play — GetPosition stays at
+// 0, the countdown freezes on frame one. 44.1k stereo is what the mapper
+// actually drives.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+export const TARGET_RATE = 44100;
+export const TARGET_CHANNELS = 2;
+
 export async function decodeAudio(file) {
   const ext = path.extname(file).toLowerCase();
   const raw = await readFile(file);
-  if (ext === '.wav') return decodeWav(raw);
-  if (ext === '.mp3') return await decodeMp3(raw);
-  throw new Error(`unsupported audio format: ${ext}`);
+  let decoded;
+  if (ext === '.wav') decoded = decodeWav(raw);
+  else if (ext === '.mp3') decoded = await decodeMp3(raw);
+  else throw new Error(`unsupported audio format: ${ext}`);
+  return toTargetFormat(decoded);
+}
+
+// linear resample + channel convert to 44100 stereo int16.
+export function convertPcm(pcm, srcCh, srcRate, dstCh = TARGET_CHANNELS, dstRate = TARGET_RATE) {
+  const srcFrames = Math.floor(pcm.length / (srcCh * 2));
+  if (srcFrames <= 0) return Buffer.alloc(0);
+  if (srcCh === dstCh && srcRate === dstRate) return pcm;
+
+  const dstFrames = srcRate === dstRate
+    ? srcFrames
+    : Math.max(1, Math.round((srcFrames * dstRate) / srcRate));
+  const out = Buffer.alloc(dstFrames * dstCh * 2);
+  const ratio = srcFrames / dstFrames;
+
+  for (let f = 0; f < dstFrames; f++) {
+    const src = f * ratio;
+    const i0 = Math.min(srcFrames - 1, Math.floor(src));
+    const i1 = Math.min(srcFrames - 1, i0 + 1);
+    const t = src - i0;
+    for (let c = 0; c < dstCh; c++) {
+      let v;
+      if (srcCh === 1) {
+        const s0 = pcm.readInt16LE(i0 * 2);
+        const s1 = pcm.readInt16LE(i1 * 2);
+        v = s0 + (s1 - s0) * t;
+      } else {
+        const sc = Math.min(c, srcCh - 1);
+        const s0 = pcm.readInt16LE((i0 * srcCh + sc) * 2);
+        const s1 = pcm.readInt16LE((i1 * srcCh + sc) * 2);
+        v = s0 + (s1 - s0) * t;
+      }
+      out.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(v))), (f * dstCh + c) * 2);
+    }
+  }
+  return out;
+}
+
+function toTargetFormat(decoded) {
+  const { pcm, channels, sampleRate } = decoded;
+  const out = convertPcm(pcm, channels, sampleRate);
+  const delay = decoded.encoderDelaySamples
+    ? Math.round(decoded.encoderDelaySamples * TARGET_RATE / sampleRate)
+    : 0;
+  return {
+    pcm: out,
+    channels: TARGET_CHANNELS,
+    sampleRate: TARGET_RATE,
+    durationMs: (out.length / (TARGET_CHANNELS * 2) / TARGET_RATE) * 1000,
+    encoderDelaySamples: delay,
+    sourceSampleRate: sampleRate,
+    sourceChannels: channels,
+  };
 }
 
 // LAME/Xing encoder delay in samples.

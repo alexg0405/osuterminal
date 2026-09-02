@@ -1,10 +1,11 @@
-// checks that the library stays in ~/osuterminal/Songs unless they opt into osu!.
+// checks that the library stays in ~/osuterminal/Songs, that an existing osu!
+// Songs folder can be scanned, and that we never treat osu! as the default dest.
 
 import path from 'node:path';
 import os from 'node:os';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import {
-  defaultSongsDir, osuSongsDir, osuSongsPresent,
+  defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
   libraryRoots, mergeMaps, mapIdentity,
 } from '../src/library.mjs';
 
@@ -23,20 +24,24 @@ check(path.resolve(homeSongs) !== path.resolve(osuSongsDir()),
   'osu! Songs is a separate path');
 check(osuSongsDir().split(path.sep).includes('osu!'),
   `osu! Songs path contains osu!  (${osuSongsDir()})`);
+check(isOsuSongsPath(osuSongsDir()), 'isOsuSongsPath recognises the osu! folder');
+check(!isOsuSongsPath(homeSongs), 'our library is not the osu! folder');
 
 const bundled = path.join(os.tmpdir(), 'osuterminal-bundled');
 const songs = path.join(os.tmpdir(), 'osuterminal-songs');
 const off = libraryRoots({ bundledDir: bundled, songsDir: songs, importOsu: false });
 check(off.length === 2, 'without import, bundled + songs dir only');
 check(!off.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
-  'osu! Songs is not scanned unless they opt in');
-check(libraryRoots({ bundledDir: bundled, songsDir: songs }).length === 2,
-  'import is off unless they pass true');
+  'osu! Songs is not scanned when they opt out');
 
 const on = libraryRoots({ bundledDir: bundled, songsDir: songs, importOsu: true });
 check(on.length === 3, 'import adds a third root');
 check(on.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
   'import scans osu! Songs');
+
+const implied = libraryRoots({ bundledDir: bundled, songsDir: songs });
+check(implied.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
+  'osu! Songs is scanned by default');
 
 const dup = libraryRoots({ bundledDir: bundled, songsDir: osuSongsDir(), importOsu: true });
 check(dup.filter((d) => path.resolve(d) === path.resolve(osuSongsDir())).length === 1,
