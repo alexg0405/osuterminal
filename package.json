@@ -1,0 +1,33 @@
+{
+  "name": "osuterminal",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "osu!standard, playable in a terminal",
+  "scripts": {
+    "play": "node src/main.mjs",
+    "probe": "node tools/probe.mjs",
+    "test": "node tools/smoke.mjs",
+    "test:parse": "node tools/parse-test.mjs",
+    "test:audio": "node tools/audio-spike.mjs",
+    "calibrate": "node tools/calibrate.mjs",
+    "test:slider": "node tools/slider-test.mjs",
+    "bench": "node tools/render-bench.mjs",
+    "test:origin": "node tools/origin-test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "koffi": "^3.1.6",
+    "mpg123-decoder": "^1.0.3"
+  },
+  "bin": {
+    "osuterminal": "src/main.mjs"
+  },
+  "files": [
+    "src",
+    "tools",
+    "README.md"
+  ]
+}
