@@ -16,6 +16,16 @@ export const HitObjectType = {
 
 const NUM = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 
+// one-sided hit windows in ms. 100 and 50 match osu!stable (140-8*OD / 200-10*OD).
+// 300 is 80-4*OD instead of 80-6*OD — terminal taps are quantized to a frame and
+// VT mouse, so the official window reads as 100s. still clamped inside 100.
+export function hitWindows(od) {
+  const ok = 140 - 8 * od;
+  const meh = 200 - 10 * od;
+  const great = Math.min(80 - 4 * od, ok - 8);
+  return { great, ok, meh };
+}
+
 // 0,0,"bg.jpg",0,0   or   Background,0,bg.jpg
 export function parseBackgroundEvent(line) {
   const t = String(line).trim();
@@ -50,13 +60,7 @@ export class Difficulty {
   }
 
   // hit windows in ms, one side. anything past the 50 window is a miss.
-  get windows() {
-    return {
-      great: 80 - 6 * this.od,   // "300"
-      ok:    140 - 8 * this.od,  // "100"
-      meh:   200 - 10 * this.od, // "50"
-    };
-  }
+  get windows() { return hitWindows(this.od); }
 }
 
 export class TimingPoint {

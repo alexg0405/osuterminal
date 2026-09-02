@@ -1,0 +1,97 @@
+// hit windows and the 300/100/50/X colour legend. does not import game.mjs.
+
+import { Difficulty, hitWindows } from '../src/core/beatmap.mjs';
+import { Framebuffer } from '../src/render/framebuffer.mjs';
+import {
+  JUDGE, judgementLegend, judgementColour, drawJudgementLegend, drawHitErrorBar,
+} from '../src/render/hud.mjs';
+
+const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
+let failures = 0;
+const check = (c, m) => { if (!c) failures++; ok(c, m); };
+
+const stable300 = (od) => 80 - 6 * od;
+
+console.log('\n=== hit windows ===');
+{
+  const w = hitWindows(5);
+  check(w.ok === 140 - 8 * 5, 'OD5 100 window matches osu!stable');
+  check(w.meh === 200 - 10 * 5, 'OD5 50 window matches osu!stable');
+  check(w.great === 80 - 4 * 5, 'OD5 300 is 80-4*OD (±60ms)');
+  check(w.great > stable300(5), 'OD5 300 is wider than osu!stable ±50ms');
+  check(w.great < w.ok && w.ok < w.meh, '300 < 100 < 50');
+}
+{
+  const w = hitWindows(8);
+  check(w.great === 48, `OD8 300 is ±48ms (osu!stable is ±32ms, got ${w.great})`);
+  check(w.great > stable300(8), 'OD8 300 is more forgiving than stable');
+  check(w.great < w.ok, 'OD8 300 still sits inside 100');
+}
+{
+  const w = hitWindows(10);
+  check(w.great === 40, `OD10 300 is ±40ms not the stable ±20ms (got ${w.great})`);
+  check(w.great <= w.ok - 8, 'OD10 300 is clamped inside 100');
+}
+{
+  const d = new Difficulty({ od: 4 });
+  check(d.windows.great === hitWindows(4).great, 'Difficulty.windows uses hitWindows');
+}
+
+console.log('\n=== judgement legend ===');
+{
+  const { parts, str, swatch } = judgementLegend({ GREAT: 38, OK: 13, MEH: 3, MISS: 2 });
+  check(swatch === '▪', 'legend uses a tiny square');
+  check(str === '▪300:38  ▪100:13  ▪50:3  ▪X:2', `legend string is "${str}"`);
+  check(parts[0].hex === JUDGE.GREAT.hex, '300 square is blue');
+  check(parts[1].hex === JUDGE.OK.hex, '100 square is green');
+  check(parts[2].hex === JUDGE.MEH.hex, '50 square is yellow');
+  check(parts[3].hex === JUDGE.MISS.hex, 'X square is red');
+  check(judgementLegend({ GREAT: 0, OK: 0, MEH: 0, MISS: 0 }).str.includes('▪300:0'),
+    'zeros still show the colour key');
+}
+
+{
+  const fb = new Framebuffer(80, 24);
+  fb.clear(8, 8, 14);
+  const str = drawJudgementLegend(fb, { GREAT: 38, OK: 13, MEH: 3, MISS: 2 }, 22);
+  const row = fb.txtChar.slice(22 * 80, 23 * 80).join('');
+  check(row.includes('▪300:38') && row.includes('▪100:13') && row.includes('▪X:2'),
+    'footer row contains the coloured counts');
+  const start = row.indexOf('▪300:38');
+  check(start >= 0 && fb.txtFg[22 * 80 + start] === JUDGE.GREAT.hex,
+    '300 swatch cell is drawn in the 300 colour');
+  const hundred = row.indexOf('▪100:13');
+  check(hundred >= 0 && fb.txtFg[22 * 80 + hundred] === JUDGE.OK.hex,
+    '100 swatch cell is drawn in the 100 colour');
+  check(str.length < 80, 'legend fits a normal terminal width');
+}
+
+console.log('\n=== hit error bar zones ===');
+{
+  const w = hitWindows(5);
+  check(judgementColour(0, w) === JUDGE.GREAT.colour, 'dead centre is a 300');
+  check(judgementColour(w.great, w) === JUDGE.GREAT.colour, 'on the 300 edge is still a 300');
+  check(judgementColour(w.great + 1, w) === JUDGE.OK.colour, 'just outside 300 is a 100');
+  check(judgementColour(w.ok + 1, w) === JUDGE.MEH.colour, 'outside 100 is a 50');
+
+  const fb = new Framebuffer(80, 24);
+  fb.clear(8, 8, 14);
+  const { x0, y, barW } = drawHitErrorBar(fb, [], w);
+  const pix = (x) => {
+    const i = (y * fb.width + x) * 3;
+    return [fb.px[i], fb.px[i + 1], fb.px[i + 2]];
+  };
+  const mid = pix(x0 + (barW >> 1));
+  check(mid[0] > 180 && mid[1] > 180 && mid[2] > 180, 'centre tick is white');
+  const inner = pix(x0 + (barW >> 1) - 2);
+  const edge = pix(x0 + 1);
+  check(inner[2] > inner[1] && inner[2] > inner[0], 'near-centre track is blue (300 zone)');
+  check(edge[0] > edge[2], 'outer track is yellow (50 zone)');
+
+  drawHitErrorBar(fb, [0], w);
+  const hit = pix(x0 + (barW >> 1));
+  check(hit[2] > 180 && hit[0] < 150, 'a perfect hit paints a blue tick on the centre');
+}
+
+console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
+process.exit(failures ? 1 : 0);

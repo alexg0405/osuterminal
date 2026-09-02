@@ -57,7 +57,8 @@
     "test:volume": "node tools/volume-test.mjs",
     "test:background": "node tools/background-test.mjs",
     "test:install": "node tools/install-test.mjs",
-    "test:input": "node tools/input-vt-test.mjs"
+    "test:input": "node tools/input-vt-test.mjs",
+    "test:hud": "node tools/hud-test.mjs"
   },
   "engines": {
     "node": ">=20"
