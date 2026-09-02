@@ -4,6 +4,8 @@
 // and stacks shift a bit more up-left. the HUD owns the top and bottom rows. if
 // you fit 512x384 to the whole terminal, notes on the top and bottom edges clip.
 
+import { stackOffsetForRadius } from '../core/stack.mjs';
+
 export const HUD_PAD_TOP = 3;     // below title + progress bar
 export const HUD_PAD_BOTTOM = 8;  // above combo, hit-error bar, help
 
@@ -14,8 +16,8 @@ export class Playfield {
     const padTop = typeof opts === 'number' ? HUD_PAD_TOP : (opts.padTop ?? HUD_PAD_TOP);
     const padBottom = typeof opts === 'number' ? HUD_PAD_BOTTOM : (opts.padBottom ?? HUD_PAD_BOTTOM);
 
-    // a little extra past the hitcircle so a short stack still stays on screen
-    const osuPad = radius > 0 ? radius + 8 : 0;
+    // disc radius plus a couple of stack steps so a short pile at the edge stays on screen
+    const osuPad = radius > 0 ? radius + 8 + stackOffsetForRadius(radius) * 2 : 0;
     const innerW = fbW;
     const innerH = Math.max(16, fbH - padTop - padBottom);
     this.scale = Math.min(innerW / (512 + 2 * osuPad), innerH / (384 + 2 * osuPad)) * margin;

@@ -17,17 +17,33 @@ function endPos(o) {
 
 function startPos(o) { return { x: o.x, y: o.y }; }
 
-// osu stable uses radius/10, which is a couple of pixels at 1080p and basically
-// nothing in a terminal. radius/5 keeps the staircase readable on a 80x24 grid.
-export function stackOffsetForRadius(radius) {
-  return Math.max(radius / 5, 6);
+function tagStack(objects, a, b) {
+  const ga = a.stackGroup, gb = b.stackGroup;
+  if (ga != null && gb != null && ga !== gb) {
+    for (const o of objects) if (o.stackGroup === gb) o.stackGroup = ga;
+    a.stackGroup = b.stackGroup = ga;
+    return;
+  }
+  const g = ga ?? gb ?? (tagStack.next++);
+  a.stackGroup = b.stackGroup = g;
 }
 
-// mutates objects: writes stackHeight, then shifts x/y (and slider geometry).
+// osu stable uses radius/10, which disappears on a terminal. about a third of
+// the circle per step leaves a crescent you can count, even at 80x24.
+export function stackOffsetForRadius(radius) {
+  return Math.max(radius / 2.6, 11);
+}
+
+// mutates objects: writes stackHeight / stackGroup / stackSize, then shifts x/y.
 export function applyStacking(objects, { preempt, stackLeniency = 0.7, radius }) {
   const stackThreshold = preempt * stackLeniency;
   const n = objects.length;
-  for (const o of objects) o.stackHeight = 0;
+  tagStack.next = 0;
+  for (const o of objects) {
+    o.stackHeight = 0;
+    o.stackGroup = null;
+    o.stackSize = 1;
+  }
   if (n < 2 || !(stackThreshold > 0) || !(radius > 0)) return objects;
 
   for (let i = n - 1; i > 0; i--) {
@@ -47,13 +63,16 @@ export function applyStacking(objects, { preempt, stackLeniency = 0.7, radius })
         if (objectN.kind === 'slider' && dist(nEnd, iPos) < STACK_DISTANCE) {
           const offset = objectI.stackHeight - objectN.stackHeight + 1;
           for (let j = k + 1; j <= i; j++) {
-            if (dist(nEnd, startPos(objects[j])) < STACK_DISTANCE)
+            if (dist(nEnd, startPos(objects[j])) < STACK_DISTANCE) {
               objects[j].stackHeight -= offset;
+              tagStack(objects, objects[j], objectN);
+            }
           }
           break;
         }
 
         if (dist(startPos(objectN), iPos) < STACK_DISTANCE) {
+          tagStack(objects, objectN, objectI);
           objectN.stackHeight = objectI.stackHeight + 1;
           objectI = objectN;
         }
@@ -64,11 +83,21 @@ export function applyStacking(objects, { preempt, stackLeniency = 0.7, radius })
         if (objectN.kind === 'spinner') continue;
         if (objectI.time - objectN.time > stackThreshold) break;
         if (dist(endPos(objectN), startPos(objectI)) < STACK_DISTANCE) {
+          tagStack(objects, objectN, objectI);
           objectN.stackHeight = objectI.stackHeight + 1;
           objectI = objectN;
         }
       }
     }
+  }
+
+  const sizes = new Map();
+  for (const o of objects) {
+    if (o.stackGroup == null) continue;
+    sizes.set(o.stackGroup, (sizes.get(o.stackGroup) ?? 0) + 1);
+  }
+  for (const o of objects) {
+    o.stackSize = o.stackGroup == null ? 1 : sizes.get(o.stackGroup);
   }
 
   const step = stackOffsetForRadius(radius);

@@ -98,7 +98,9 @@ those samples back.
 ## what works
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
-note lock, stacking. Hitsounds load from the beatmap folder and fall back to synthesized
+note lock, stacking. Hit circles are rings rather than solid discs, so streams and
+stacks stay countable; a pile also spreads up-left and the next hit shows how many
+are left. Hitsounds load from the beatmap folder and fall back to synthesized
 ones when a map doesn't ship them. Beatmap backgrounds (jpg/png) render pixelated and
 dimmed at terminal resolution. Volume is three sliders: master, music, hitsounds.
 
@@ -162,6 +164,7 @@ src/audio/decode.mjs       mp3/wav to PCM
 src/audio/waveout.mjs      simple player, only calibration uses it
 src/render/framebuffer.mjs half block framebuffer
 src/render/playfield.mjs   512x384 onto the terminal, HUD insets
+src/render/hitcircle.mjs   rings so overlapping notes stay countable
 src/render/background.mjs  beatmap jpg/png, cover-crop, dim
 src/input/input.mjs        the input split described above
 src/volume.mjs             master / music / hitsound sliders
@@ -186,6 +189,7 @@ node tools/render-bench.mjs  # frame timing
 node tools/select-test.mjs   # song select keys
 node tools/result-test.mjs   # ranking grades + results screen
 node tools/stack-test.mjs    # stacked circle offsets
+node tools/hitcircle-test.mjs # overlapping rings stay countable
 node tools/browse-test.mjs   # download search keys
 node tools/playfield-test.mjs # notes stay on screen vertically
 node tools/volume-test.mjs   # volume clamp / step / mix

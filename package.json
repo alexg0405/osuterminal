@@ -47,6 +47,7 @@
     "test:decode": "node tools/decode-test.mjs",
     "test:result": "node tools/result-test.mjs",
     "test:stack": "node tools/stack-test.mjs",
+    "test:hitcircle": "node tools/hitcircle-test.mjs",
     "test:browse": "node tools/browse-test.mjs",
     "test:playfield": "node tools/playfield-test.mjs",
     "test:volume": "node tools/volume-test.mjs",

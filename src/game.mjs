@@ -8,6 +8,7 @@ import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
 import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
 import { applyStacking } from './core/stack.mjs';
+import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM } from './render/background.mjs';
@@ -100,7 +101,8 @@ export class Game {
     }
 
     // stacked notes share a position in the .osu; shift them up-left so the pile
-    // is visible instead of one disc covering the rest.
+    // is visible instead of one disc covering the rest. rings + remaining-count
+    // do the rest of the work at draw time.
     const stackLeniency = Number(beatmap.general.StackLeniency);
     applyStacking(this.objects, {
       preempt: this.diff.preempt,
@@ -199,6 +201,17 @@ export class Game {
     else if (kind !== 'MISS') o.everTracked = true;   // hitting the head counts as tracking
 
     this.#advance();
+  }
+
+  #stackRemaining(o) {
+    const g = o.stackGroup;
+    if (g == null) return 1;
+    let n = 0;
+    for (let i = this.nextIndex; i < this.objects.length; i++) {
+      const x = this.objects[i];
+      if (x.stackGroup === g && !x.headResult) n++;
+    }
+    return n;
   }
 
   #finish(o, kind) {
@@ -486,13 +499,14 @@ export class Game {
 
     // keep drawing the head circle until the head is judged
     if (!o.headResult) {
-      const stacked = Math.abs(o.stackHeight ?? 0) > 0;
-      // thinner fill so a stack of discs still shows the ones underneath
-      fb.fillCircle(cx, cy, rad, cr * 0.28, cg * 0.28, cb * 0.28, alpha * (stacked ? 0.55 : 0.72));
-      fb.strokeCircle(cx, cy, rad, stacked ? 2.4 : 2.0, cr, cg, cb, alpha);
-      if (stacked) fb.strokeCircle(cx, cy, rad * 0.78, 1.2, 255, 255, 255, alpha * 0.4);
+      const stacked = (o.stackSize ?? 1) >= 2;
+      const remaining = stacked && o.index === this.nextIndex ? this.#stackRemaining(o) : 0;
+      const next = this.objects[this.nextIndex];
+      const combo = remaining >= 2 || !comboVisible(o, next, this.diff.radius) ? null : o.combo;
+      drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
+        stacked, combo, count: remaining >= 2 ? remaining : null,
+      });
       if (dt > 0) fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, alpha * 0.75);
-      if (rad > 3) fb.drawCombo(cx, cy, o.combo, rad, 255, 255, 255, alpha);
     }
   }
 
