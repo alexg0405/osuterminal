@@ -2,6 +2,7 @@
 // spinners aren't done, they need rotation tracking which is a separate thing.
 
 import { Framebuffer } from './render/framebuffer.mjs';
+import { Playfield } from './render/playfield.mjs';
 import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
@@ -29,27 +30,7 @@ const MIN_PREP_MS = 2200;
 // osu lets the cursor drift to 2.4x the circle radius while tracking a slider
 const FOLLOW_SCALE = 2.4;
 
-// maps osu pixel space (512x384, 4:3) onto the framebuffer with letterboxing
-export class Playfield {
-  constructor(fbW, fbH, margin = 0.94) {
-    this.scale = Math.min(fbW / 512, fbH / 384) * margin;
-    this.w = 512 * this.scale;
-    this.h = 384 * this.scale;
-    this.ox = (fbW - this.w) / 2;
-    this.oy = (fbH - this.h) / 2;
-  }
-  sx(x) { return this.ox + x * this.scale; }
-  sy(y) { return this.oy + y * this.scale; }
-  len(l) { return l * this.scale; }
-
-  // framebuffer pixel to osu pixel, clamped to the playfield
-  toOsu(fx, fy) {
-    return {
-      x: Math.max(0, Math.min(512, (fx - this.ox) / this.scale)),
-      y: Math.max(0, Math.min(384, (fy - this.oy) / this.scale)),
-    };
-  }
-}
+export { Playfield } from './render/playfield.mjs';
 
 // how far along a slider you are at time t, 0..1, accounting for reverses
 export function sliderProgress(o, t) {
@@ -318,7 +299,7 @@ export class Game {
   // ------------------------------------------------------------- loop
   async run({ pcm, sampleRate, channels }) {
     let fb = new Framebuffer(stdout.columns, stdout.rows);
-    let pf = new Playfield(fb.width, fb.height);
+    let pf = new Playfield(fb.width, fb.height, { radius: this.diff.radius });
     const input = new Input({ mode: this.aimMode, sensitivity: this.sensitivity, keys: this.keys });
     const player = new AudioEngine({ sampleRate, channels });
     this.audio = player;
@@ -360,7 +341,7 @@ export class Game {
         // every frame costs nothing
         if (fb.cols !== stdout.columns || fb.rows !== stdout.rows) {
           fb = new Framebuffer(stdout.columns, stdout.rows);
-          pf = new Playfield(fb.width, fb.height);
+          pf = new Playfield(fb.width, fb.height, { radius: this.diff.radius });
           stdout.write(`${CSI}2J`);
         }
 

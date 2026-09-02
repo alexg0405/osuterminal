@@ -155,6 +155,7 @@ src/audio/hitsounds.mjs    sample loading and synthesis
 src/audio/decode.mjs       mp3/wav to PCM
 src/audio/waveout.mjs      simple player, only calibration uses it
 src/render/framebuffer.mjs half block framebuffer
+src/render/playfield.mjs   512x384 onto the terminal, HUD insets
 src/input/input.mjs        the input split described above
 src/game.mjs               judgement, scoring, drawing
 src/select.mjs             song select
@@ -178,6 +179,7 @@ node tools/select-test.mjs   # song select keys
 node tools/result-test.mjs   # ranking grades + results screen
 node tools/stack-test.mjs    # stacked circle offsets
 node tools/browse-test.mjs   # download search keys
+node tools/playfield-test.mjs # notes stay on screen vertically
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo
 node tools/probe.mjs         # what your terminal supports
