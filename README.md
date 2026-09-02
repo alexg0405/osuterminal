@@ -1,0 +1,131 @@
+# osuterminal
+
+osu!standard in a terminal, with mouse aim and hit circles.
+
+Reads your existing osu! Songs folder.
+
+## install
+
+```bash
+npm install -g .
+```
+
+Or just run `node src/main.mjs` from the repo.
+
+## usage
+
+```bash
+osuterminal --calibrate           # run this first
+osuterminal                       # song select
+osuterminal "tower of heaven"     # skip straight to a map
+osuterminal "tower" -d 4          # pick difficulty 4
+osuterminal --list
+```
+
+z / x / mouse to hit, space to pause, +/- to nudge offset, q to quit.
+
+## calibration
+
+Run `osuterminal --calibrate` once. Metronome plays, you tap along to what you hear, it
+saves the offset to `~/.osuterminal.json`.
+
+This isn't optional. Audio latency comes from the sound device, your headphones, the
+terminal, and your own reaction time. There's no way to calculate it, you have to
+measure it.
+
+One thing I did fix in code: mpg123 strips the LAME encoder delay when it decodes mp3s
+but osu's decoder doesn't, so maps end up ~13ms early and every hit reads as late.
+decode.mjs adds those samples back.
+
+## what works
+
+Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
+note lock. Hitsounds load from the beatmap folder and fall back to synthesized ones
+when a map doesn't ship them.
+
+Not done yet: spinners, stacking, HP drain, breaks, mods. Stacking matters most of
+those since stacked patterns currently draw on top of each other.
+
+## notes on how it works
+
+Three things I had to figure out:
+
+**Don't busy-spin the render loop.** Spinning for exact frame timing looks fine but
+wrecks input timing. It starves the event loop and keypress jitter goes from 1.6ms to
+13.6ms, which is nearly half the OD8 300 window. So frames are paced loosely with
+setTimeout and inputs get timestamped the moment they arrive. A few ms of frame jitter
+isn't visible, input jitter is.
+
+**Aim and clicks come from different places.** Windows Terminal only reports the mouse
+position in cells, which rounds your aim to 6.4px across and 12.8px down. That's about a
+third of a CS4 circle radius so you literally can't aim at the middle of a note. It also
+doesn't support the kitty keyboard protocol so there's no key release event.
+
+So aim comes from Win32 GetCursorPos (pixel accurate), clicks come from VT stdin events
+(event driven, ~1.6ms jitter, and this is the part that has to be accurate), and key
+release comes from GetAsyncKeyState (only used for slider holds, where the exact ms
+doesn't matter).
+
+For absolute aim I need to know where the terminal actually is on screen, and Windows
+won't tell you since GetConsoleWindow returns a hidden pseudo console. So it solves for
+it instead: mouse motion events give you the cell, GetCursorPos gives you the pixel, and
+each pair narrows the origin to a one cell wide range. Intersect enough of those and you
+get it exactly. Converges to half a pixel in about 48 mouse movements.
+
+**The clock has to come from the audio device.** waveOutGetPosition in TIME_SAMPLES mode
+gives you exactly how many samples the hardware has played. 3ppm drift, 0.04ms jitter. A
+regular timer desyncs you inside a minute.
+
+Audio is a ring of small buffers that get refilled and mixed as they finish. That's
+needed for hitsounds, since those fire when you click rather than at a fixed time, and
+waveOut plays queued buffers one after another instead of mixing them. The downside is
+that queue depth equals hitsound latency, currently 8 x 5ms = 40ms.
+
+Rendering uses half block characters (U+2580) with the foreground as the top pixel and
+background as the bottom, so a 120x30 terminal is really 120x60 squarish pixels. Only
+redraws cells that changed. Densest map I have (1343 objects, AR9.6) costs 1.38ms a
+frame at 240x60.
+
+## make it look better
+
+Playfield resolution is just your terminal size, so shrink your font. Default 10x20
+cells give a CS4 circle about 11x11 pixels. Halve the font and it's 23x23.
+
+## layout
+
+```
+src/core/beatmap.mjs       .osu parser, difficulty math
+src/core/slider.mjs        curve eval, length fitting, ticks
+src/audio/engine.mjs       streaming mixer + the clock
+src/audio/hitsounds.mjs    sample loading and synthesis
+src/audio/decode.mjs       mp3/wav to PCM
+src/audio/waveout.mjs      simple player, only calibration uses it
+src/render/framebuffer.mjs half block framebuffer
+src/input/input.mjs        the input split described above
+src/game.mjs               judgement, scoring, drawing
+src/select.mjs             song select
+src/main.mjs               cli
+tools/                     tests and benchmarks
+```
+
+## tools
+
+```bash
+node tools/smoke.mjs         # main test suite
+node tools/slider-test.mjs   # runs every slider in your library through the path code
+node tools/origin-test.mjs   # cursor origin solver
+node tools/engine-spike.mjs  # audio clock
+node tools/render-bench.mjs  # frame timing
+node tools/probe.mjs         # what your terminal supports
+```
+
+npm scripts exist too but PowerShell blocks npm's .ps1 shim by default, so either use
+`npm.cmd run x` or just call node.
+
+## requirements
+
+Windows, node 20+, terminal at least 60x20. koffi and mpg123-decoder both ship prebuilt
+so you don't need a compiler.
+
+Input is Windows only right now. There's a VT fallback that works anywhere but you lose
+pixel accurate aim.
