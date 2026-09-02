@@ -169,6 +169,9 @@ export class Beatmap {
       time: NUM(f[0]),
       beatLength,
       meter: NUM(f[2], 4),
+      sampleSet: NUM(f[3], 1),      // 0 inherit, 1 normal, 2 soft, 3 drum
+      sampleIndex: NUM(f[4], 0),    // custom suffix, 0 and 1 both mean none
+      volume: NUM(f[5], 100),
       uninherited: uninherited || beatLength > 0,
       kiai: f.length > 7 ? (NUM(f[7]) & 1) === 1 : false,
     }));
