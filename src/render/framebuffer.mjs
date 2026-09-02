@@ -105,6 +105,23 @@ export class Framebuffer {
     for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) this.blend(xx, yy, r, g, b, a);
   }
 
+  // combo numbers used to be terminal characters, which snap to the cell grid.
+  // a circle's pixel centre rarely lands on a cell centre, so "3" and "4" sat in
+  // different corners of their circles. these glyphs are drawn in pixel space
+  // and the whole number is centred on (cx, cy).
+  drawCombo(cx, cy, label, rad, r = 255, g = 255, b = 255, a = 1) {
+    const str = String(label);
+    const ps = comboPixelSize(rad, str.length);
+    if (ps <= 0) return;
+    const { x0, y0 } = comboLabelBox(cx, cy, str, ps);
+    for (let i = 0; i < str.length; i++) {
+      const d = str.charCodeAt(i) - 48;
+      if (d < 0 || d > 9) continue;
+      const gx = x0 + i * (DIGIT_W + DIGIT_GAP) * ps;
+      blitDigit(this, gx, y0, DIGITS[d], ps, r, g, b, a);
+    }
+  }
+
   // text is at cell resolution and replaces the half block for those cells
   text(col, row, str, fg = 0xffffff, bg = null) {
     if (row < 0 || row >= this.rows) return;
@@ -175,4 +192,51 @@ export class Framebuffer {
 
   // drop the diff state. call this if anything else wrote to the terminal.
   invalidate() { this.prev = null; this.prevChar.fill(0); }
+}
+
+const DIGIT_W = 5, DIGIT_H = 7, DIGIT_GAP = 1;
+
+// 5x7, bit 4 is the left column. each glyph is designed around column 2 / row 3
+// so 1 and 4 share a centre instead of sitting on the left of a character cell.
+const DIGITS = [
+  [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110], // 0
+  [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // 1
+  [0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111], // 2
+  [0b01110, 0b10001, 0b00001, 0b01110, 0b00001, 0b10001, 0b01110], // 3
+  [0b00100, 0b01010, 0b10010, 0b11111, 0b00100, 0b00100, 0b00100], // 4
+  [0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110], // 5
+  [0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110], // 6
+  [0b11111, 0b00001, 0b00010, 0b00100, 0b00100, 0b00100, 0b00100], // 7
+  [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110], // 8
+  [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110], // 9
+];
+
+export function comboPixelSize(rad, digits = 1) {
+  const n = Math.max(1, digits);
+  const width = n * DIGIT_W + (n - 1) * DIGIT_GAP;
+  // keep the glyph inside the circle; floor so it never outgrows a small CS
+  const byH = Math.floor(rad / (DIGIT_H / 2 + 0.5));
+  const byW = Math.floor((rad * 1.6) / width);
+  return Math.max(1, Math.min(byH, byW, 4));
+}
+
+export function comboLabelBox(cx, cy, label, pixelSize = 1) {
+  const n = String(label).length;
+  const w = n * DIGIT_W + Math.max(0, n - 1) * DIGIT_GAP;
+  const h = DIGIT_H;
+  const x0 = Math.round(cx - (w * pixelSize) / 2);
+  const y0 = Math.round(cy - (h * pixelSize) / 2);
+  return { x0, y0, w: w * pixelSize, h: h * pixelSize, pixelSize };
+}
+
+function blitDigit(fb, x0, y0, rows, ps, r, g, b, a) {
+  for (let y = 0; y < DIGIT_H; y++) {
+    const bits = rows[y];
+    for (let x = 0; x < DIGIT_W; x++) {
+      if (((bits >> (DIGIT_W - 1 - x)) & 1) === 0) continue;
+      const px = x0 + x * ps, py = y0 + y * ps;
+      if (ps === 1) fb.blend(px, py, r, g, b, a);
+      else fb.rect(px, py, ps, ps, r, g, b, a);
+    }
+  }
 }
