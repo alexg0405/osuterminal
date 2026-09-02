@@ -12,6 +12,7 @@ import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM } from './render/background.mjs';
+import { JUDGE, drawJudgementLegend, drawHitErrorBar } from './render/hud.mjs';
 import { stdout } from 'node:process';
 
 const CSI = '\x1b[';
@@ -20,13 +21,6 @@ const nowMs = () => Number(process.hrtime.bigint()) / 1e6;
 const COMBO_COLOURS = [
   [255, 102, 170], [102, 204, 255], [255, 187, 68], [136, 221, 119], [187, 136, 255],
 ];
-const JUDGE = {
-  GREAT: { score: 300, colour: [90, 200, 255] },
-  OK:    { score: 100, colour: [120, 230, 120] },
-  MEH:   { score: 50,  colour: [230, 200, 100] },
-  MISS:  { score: 0,   colour: [255, 80, 80] },
-};
-
 // minimum quiet time before the first object so the map doesn't start instantly
 const MIN_PREP_MS = 2200;
 
@@ -575,32 +569,17 @@ export class Game {
     fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
 
     fb.text(1, fb.rows - 1, `${this.combo}x`, this.combo > 0 ? 0xffd257 : 0x555555);
-    const stats = `300:${c.GREAT}  100:${c.OK}  50:${c.MEH}  X:${c.MISS}`;
-    fb.text(Math.floor((fb.cols - stats.length) / 2), fb.rows - 1, stats, 0x8a94a8);
     const help = 'esc pause';
     fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
+    // coloured squares sit on the row under the error bar so 300/100/50/X
+    // match the ticks above instead of being a grey blob of numbers.
+    drawJudgementLegend(fb, c, fb.rows - 2);
+    drawHitErrorBar(fb, this.errors, this.diff.windows);
 
     const filled = Math.round(this.progress * fb.cols);
     for (let x = 0; x < fb.cols; x++) {
       const on = x < filled;
       fb.set(x, 0, on ? 90 : 26, on ? 150 : 26, on ? 220 : 34);
-    }
-
-    if (this.errors.length) {
-      const w = this.diff.windows.meh;
-      const barW = Math.min(60, fb.cols - 20);
-      const x0 = Math.floor((fb.cols - barW) / 2);
-      const y = fb.height - 6;
-      for (let i = 0; i < barW; i++) fb.set(x0 + i, y, 42, 42, 54);
-      fb.set(x0 + (barW >> 1), y, 200, 200, 200);
-      for (let i = 0; i < this.errors.length; i++) {
-        const e = this.errors[i];
-        const age = i / this.errors.length;
-        const px = x0 + Math.round(((e / w) * 0.5 + 0.5) * barW);
-        const ad = Math.abs(e), win = this.diff.windows;
-        const col = ad <= win.great ? [90, 200, 255] : ad <= win.ok ? [120, 230, 120] : [230, 200, 100];
-        fb.blend(px, y, col[0], col[1], col[2], 0.25 + age * 0.75);
-      }
     }
 
     if (paused) this.#drawPauseMenu(fb);
