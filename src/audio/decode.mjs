@@ -12,6 +12,33 @@ export async function decodeAudio(file) {
   throw new Error(`unsupported audio format: ${ext}`);
 }
 
+// LAME/Xing encoder delay in samples.
+//
+// this is a sync thing, not a quality thing. mpg123 does gapless playback, so it strips
+// the encoder delay off the front and the stream starts at the first real sample. osu
+// uses BASS, which doesn't do that, so hit times in the map line up against a stream
+// that still has those samples. decoding gapless shifts the whole song earlier and
+// every hit reads as late.
+//
+// checked on a real map: 576 samples, 13.1ms. the Xing header says 7187 frames, so
+// 7187 * 1152 = 8279424, but only 8278272 came back. the difference is exactly
+// delay + padding.
+function readEncoderDelay(buf) {
+  const head = buf.subarray(0, 4096);
+  let tag = head.indexOf('Xing');
+  if (tag < 0) tag = head.indexOf('Info');
+  if (tag < 0) return 0;
+
+  const lame = tag + 120;                       // LAME extension is always at this offset
+  if (lame + 24 > buf.length) return 0;
+  const sig = buf.toString('latin1', lame, lame + 4);
+  if (!/^(LAME|Lavf|Lavc)/.test(sig)) return 0;
+
+  const o = lame + 21;                          // 12 bits delay then 12 bits padding
+  const delay = (buf[o] << 4) | (buf[o + 1] >> 4);
+  return delay > 0 && delay < 3000 ? delay : 0; // bail out if it clearly misparsed
+}
+
 async function decodeMp3(raw) {
   const { MPEGDecoder } = await import('mpg123-decoder');
   const dec = new MPEGDecoder();
@@ -23,9 +50,15 @@ async function decodeMp3(raw) {
       if (!samplesDecoded) throw new Error(`mp3 decode failed: ${errors[0]?.message ?? 'no samples'}`);
     }
     const { pcm, channels } = interleave(channelData, samplesDecoded);
+
+    // add the delay back so our timeline matches what the map was made against
+    const delay = readEncoderDelay(raw);
+    const out = delay ? Buffer.concat([Buffer.alloc(delay * channels * 2), pcm]) : pcm;
+
     return {
-      pcm, channels, sampleRate,
-      durationMs: (pcm.length / (channels * 2) / sampleRate) * 1000,
+      pcm: out, channels, sampleRate,
+      durationMs: (out.length / (channels * 2) / sampleRate) * 1000,
+      encoderDelaySamples: delay,
     };
   } finally {
     dec.free();
