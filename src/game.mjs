@@ -1,0 +1,543 @@
+// the game itself. circles and sliders, timed against the audio clock.
+// spinners aren't done, they need rotation tracking which is a separate thing.
+
+import { Framebuffer } from './render/framebuffer.mjs';
+import { Input } from './input/input.mjs';
+import { AudioEngine } from './audio/engine.mjs';
+import { HitsoundBank } from './audio/hitsounds.mjs';
+import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
+import { stdout } from 'node:process';
+
+const CSI = '\x1b[';
+const nowMs = () => Number(process.hrtime.bigint()) / 1e6;
+
+const COMBO_COLOURS = [
+  [255, 102, 170], [102, 204, 255], [255, 187, 68], [136, 221, 119], [187, 136, 255],
+];
+const JUDGE = {
+  GREAT: { score: 300, colour: [90, 200, 255] },
+  OK:    { score: 100, colour: [120, 230, 120] },
+  MEH:   { score: 50,  colour: [230, 200, 100] },
+  MISS:  { score: 0,   colour: [255, 80, 80] },
+};
+
+// minimum quiet time before the first object so the map doesn't start instantly
+const MIN_PREP_MS = 2200;
+
+// osu lets the cursor drift to 2.4x the circle radius while tracking a slider
+const FOLLOW_SCALE = 2.4;
+
+// maps osu pixel space (512x384, 4:3) onto the framebuffer with letterboxing
+export class Playfield {
+  constructor(fbW, fbH, margin = 0.94) {
+    this.scale = Math.min(fbW / 512, fbH / 384) * margin;
+    this.w = 512 * this.scale;
+    this.h = 384 * this.scale;
+    this.ox = (fbW - this.w) / 2;
+    this.oy = (fbH - this.h) / 2;
+  }
+  sx(x) { return this.ox + x * this.scale; }
+  sy(y) { return this.oy + y * this.scale; }
+  len(l) { return l * this.scale; }
+
+  // framebuffer pixel to osu pixel, clamped to the playfield
+  toOsu(fx, fy) {
+    return {
+      x: Math.max(0, Math.min(512, (fx - this.ox) / this.scale)),
+      y: Math.max(0, Math.min(384, (fy - this.oy) / this.scale)),
+    };
+  }
+}
+
+// how far along a slider you are at time t, 0..1, accounting for reverses
+export function sliderProgress(o, t) {
+  const span = o.timing.spanDuration;
+  if (span <= 0) return 0;
+  const elapsed = t - o.time;
+  if (elapsed <= 0) return 0;
+  const s = Math.floor(elapsed / span);
+  if (s >= o.slides) return o.slides % 2 === 1 ? 1 : 0;
+  const frac = (elapsed - s * span) / span;
+  return s % 2 === 1 ? 1 - frac : frac;
+}
+
+export class Game {
+  constructor(beatmap, { audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute' } = {}) {
+    this.map = beatmap;
+    this.diff = beatmap.difficulty;
+    this.audioOffsetMs = audioOffsetMs;
+    this.sensitivity = sensitivity;
+    this.aimMode = aimMode;
+
+    const src = beatmap.hitObjects.filter((o) => !o.isSpinner);
+    this.objects = src.map((o, i) => {
+      const base = {
+        index: i, kind: o.isSlider ? 'slider' : 'circle',
+        x: o.x, y: o.y, time: o.time, endTime: o.time,
+        combo: 0, comboColour: 0,
+        headResult: null, headAt: 0, error: 0,
+        result: null, resultAt: 0,
+      };
+      if (!o.isSlider) return base;
+
+      const path = new SliderPath(o.curveType, o.points, o.pixelLength);
+      const timing = sliderTiming(beatmap, o);
+      return {
+        ...base,
+        path, timing, slides: o.slides,
+        endTime: timing.endTime,
+        ticks: sliderTicks(path, timing, o).map((t) => ({ ...t, hit: null })),
+        repeats: sliderRepeats(path, timing, o).map((r) => ({ ...r, hit: null })),
+        nextTick: 0, nextRepeat: 0,
+        tracking: false, everTracked: false, tailHit: false, finalized: false,
+      };
+    });
+
+    // combo numbers reset on each new combo object, same as the real game
+    let combo = 0, colour = 0;
+    for (let i = 0; i < this.objects.length; i++) {
+      if (src[i].isNewCombo || i === 0) { combo = 1; colour = (colour + 1) % COMBO_COLOURS.length; }
+      else combo++;
+      this.objects[i].combo = combo;
+      this.objects[i].comboColour = colour;
+    }
+
+    // lead in. silence gets stuck on the front of the audio so the first object isn't
+    // on you the second playback starts. the clock is still the audio clock, song time
+    // just runs negative through the lead in and hits zero when the real audio starts.
+    const first = this.objects[0]?.time ?? 0;
+    this.leadInMs = Math.max(
+      beatmap.audioLeadIn,                              // whatever the map asks for
+      Math.max(0, MIN_PREP_MS - first),                 // time to get ready
+      Math.max(0, this.diff.preempt + 400 - first),     // enough to see the first approach circle
+    );
+
+    this.reset();
+  }
+
+  reset() {
+    this.score = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.counts = { GREAT: 0, OK: 0, MEH: 0, MISS: 0 };
+    this.errors = [];
+    this.nextIndex = 0;    // first object with an unjudged head, this is what note lock uses
+    for (const o of this.objects) {
+      o.headResult = null; o.headAt = 0; o.error = 0;
+      o.result = null; o.resultAt = 0;
+      if (o.kind === 'slider') {
+        o.nextTick = 0; o.nextRepeat = 0;
+        o.tracking = false; o.everTracked = false; o.tailHit = false; o.finalized = false;
+        for (const t of o.ticks) t.hit = null;
+        for (const r of o.repeats) r.hit = null;
+      }
+    }
+  }
+
+  get accuracy() {
+    const c = this.counts;
+    const total = c.GREAT + c.OK + c.MEH + c.MISS;
+    if (!total) return 1;
+    return (c.GREAT * 300 + c.OK * 100 + c.MEH * 50) / (total * 300);
+  }
+
+  get progress() {
+    const last = this.objects[this.objects.length - 1];
+    return last ? Math.min(1, Math.max(0, this.time / (last.endTime + 1000))) : 0;
+  }
+
+  // ------------------------------------------------------------- combo/score
+  #addCombo(points) {
+    this.combo++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.score += Math.round(points * (1 + Math.max(0, this.combo - 1) / 25));
+  }
+  #breakCombo() { this.combo = 0; }
+
+  // ------------------------------------------------------------- judgement
+  // runs on every tap. at is when the input actually arrived, not the frame time.
+  handleHit(at) {
+    const t = this.timeAtWall(at);
+    const w = this.diff.windows;
+
+    this.expireBefore(t);
+
+    // note lock: only the earliest object with an unjudged head can be hit
+    const o = this.objects[this.nextIndex];
+    if (!o || o.headResult) return null;
+
+    const dt = t - o.time;
+    if (dt < -w.meh || dt > w.meh) return null;
+
+    const ad = Math.abs(dt);
+    const kind = ad <= w.great ? 'GREAT' : ad <= w.ok ? 'OK' : 'MEH';
+    this.#judgeHead(o, kind, dt);
+    return kind;
+  }
+
+  #judgeHead(o, kind, dt) {
+    o.headResult = kind;
+    o.headAt = this.time;
+    o.error = dt;
+
+    if (kind === 'MISS') this.#breakCombo();
+    else {
+      this.#addCombo(o.kind === 'slider' ? 30 : JUDGE[kind].score);
+      this.errors.push(dt);
+      if (this.errors.length > 48) this.errors.shift();
+    }
+
+    // circles finish right away, sliders stay live until the tail
+    if (o.kind === 'circle') this.#finish(o, kind);
+    else if (kind !== 'MISS') o.everTracked = true;   // hitting the head counts as tracking
+
+    this.#advance();
+  }
+
+  #finish(o, kind) {
+    o.result = kind;
+    o.resultAt = this.time;
+    this.counts[kind]++;
+    if (kind === 'MISS') this.#breakCombo();
+  }
+
+  // play an object's hitsounds. these go off on your input, not at the authored time,
+  // which is why the audio has to mix live instead of being rendered ahead.
+  #playHitsound(o) {
+    if (!this.audio || !o.samples) return;
+    for (const s of o.samples) this.audio.playSample(s, o.sampleGain);
+  }
+
+  #playTickSound(gain = 0.5) {
+    if (!this.audio || !this.tickSample) return;
+    this.audio.playSample(this.tickSample, gain);
+  }
+
+  // work out every object's samples up front so nothing touches the disk mid game.
+  // skipping this is fine, you just get no hitsounds.
+  async prepareAudio(sampleRate) {
+    const bank = await HitsoundBank.forBeatmap(this.map, sampleRate);
+    await bank.prime(this.map);
+
+    const src = this.map.hitObjects.filter((h) => !h.isSpinner);
+    for (let i = 0; i < this.objects.length; i++) {
+      const h = src[i];
+      const tp = this.map.effectiveAt(h.time);
+      this.objects[i].samples = await bank.resolve(tp?.sampleSet ?? 1, h.hitSound ?? 1, tp?.sampleIndex ?? 0);
+      this.objects[i].sampleGain = ((tp?.volume ?? 100) / 100) * 0.9;
+    }
+    [this.tickSample] = await bank.resolve(this.map.timingPoints[0]?.sampleSet ?? 1, 0, 0);
+    this.hitsoundStats = { loaded: bank.loaded, synthesized: bank.synthesized };
+    return this;
+  }
+
+  #advance() {
+    while (this.nextIndex < this.objects.length && this.objects[this.nextIndex].headResult)
+      this.nextIndex++;
+  }
+
+  // expire any heads whose 50 window closed before t
+  expireBefore(t) {
+    const w = this.diff.windows;
+    for (let i = this.nextIndex; i < this.objects.length; i++) {
+      const o = this.objects[i];
+      if (o.headResult) continue;
+      if (t <= o.time + w.meh) break;
+      this.#judgeHead(o, 'MISS', w.meh);
+    }
+  }
+
+  processMisses() { this.expireBefore(this.time); }
+
+  // slider tracking, runs every frame. ticks and repeats count if the cursor was inside
+  // the follow circle with a button held when they went past. the slider's final
+  // judgement is just the fraction of its parts that landed.
+  updateSliders(cursor, holding) {
+    const followR = this.diff.radius * FOLLOW_SCALE;
+    const t = this.time;
+
+    for (let i = Math.max(0, this.nextIndex - 4); i < this.objects.length; i++) {
+      const o = this.objects[i];
+      if (o.kind !== 'slider' || o.finalized) continue;
+      if (t < o.time) break;
+
+      const ballAt = sliderProgress(o, Math.min(t, o.endTime));
+      const ball = o.path.positionAt(ballAt);
+      const inRange = Math.hypot(cursor.x - ball.x, cursor.y - ball.y) <= followR;
+      o.tracking = holding && inRange && o.headResult !== null;
+      if (o.tracking) o.everTracked = true;
+
+      while (o.nextTick < o.ticks.length && o.ticks[o.nextTick].time <= t) {
+        const tk = o.ticks[o.nextTick++];
+        tk.hit = o.tracking;
+        if (tk.hit) this.#addCombo(10); else this.#breakCombo();
+      }
+      while (o.nextRepeat < o.repeats.length && o.repeats[o.nextRepeat].time <= t) {
+        const rp = o.repeats[o.nextRepeat++];
+        rp.hit = o.tracking;
+        if (rp.hit) this.#addCombo(30); else this.#breakCombo();
+      }
+
+      if (t >= o.endTime) {
+        o.tailHit = o.tracking;
+        if (o.tailHit) this.#addCombo(30);
+        this.#finalizeSlider(o);
+      }
+    }
+  }
+
+  #finalizeSlider(o) {
+    o.finalized = true;
+    const parts = 2 + o.ticks.length + o.repeats.length;   // head, tail, ticks, repeats
+    const hit = (o.headResult && o.headResult !== 'MISS' ? 1 : 0)
+      + (o.tailHit ? 1 : 0)
+      + o.ticks.filter((x) => x.hit).length
+      + o.repeats.filter((x) => x.hit).length;
+
+    const frac = hit / parts;
+    const kind = frac >= 1 ? 'GREAT' : frac >= 0.5 ? 'OK' : frac > 0 ? 'MEH' : 'MISS';
+    this.#finish(o, kind);
+  }
+
+  // ------------------------------------------------------------- clock
+  timeAtWall(at) { return this.time + (at - this.frameWall); }
+
+  // ------------------------------------------------------------- loop
+  async run({ pcm, sampleRate, channels }) {
+    let fb = new Framebuffer(stdout.columns, stdout.rows);
+    let pf = new Playfield(fb.width, fb.height);
+    const input = new Input({ mode: this.aimMode, sensitivity: this.sensitivity });
+    const player = new AudioEngine({ sampleRate, channels });
+    this.audio = player;
+
+    const leadInFrames = Math.round((this.leadInMs / 1000) * sampleRate);
+    const padded = leadInFrames > 0
+      ? Buffer.concat([Buffer.alloc(leadInFrames * channels * 2), pcm])
+      : pcm;
+
+    this.time = 0;
+    this.frameWall = nowMs();
+    let quit = false, paused = false;
+
+    input.on('hit', ({ at }) => { if (!paused) this.handleHit(at); });
+    input.on('key', ({ ch }) => {
+      if (ch === '\x1b' || ch === '\x03' || ch === 'q') quit = true;
+      else if (ch === ' ') { paused = !paused; paused ? player.pause() : player.resume(); }
+      else if (ch === '+' || ch === '=') this.audioOffsetMs += 5;
+      else if (ch === '-' || ch === '_') this.audioOffsetMs -= 5;
+    });
+
+    stdout.write(`${CSI}?1049h${CSI}?25l`);
+    await input.enable();
+    player.open().setMusic(padded).start();
+
+    try {
+      while (!quit) {
+        player.pump();          // refill finished audio buffers
+        this.frameWall = nowMs();
+        this.time = player.positionMs() - this.leadInMs - this.audioOffsetMs;
+
+        input.poll();
+        // input gives fractional cells. framebuffer is 1px per column and 2px per row,
+        // so y gets doubled before converting back to osu coords.
+        const cursor = pf.toOsu(input.cellX, input.cellY * 2);
+        if (!paused) {
+          this.processMisses();
+          this.updateSliders(cursor, input.anyDown);
+        }
+
+        this.draw(fb, pf, input, paused, cursor);
+        const frame = fb.render();
+        if (frame) stdout.write(frame);
+
+        if (this.time > this.objects[this.objects.length - 1].endTime + 2500) break;
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    } finally {
+      player.close();
+      input.disable();
+      stdout.write(`${CSI}?25h${CSI}?1049l`);
+    }
+
+    return this.#summary();
+  }
+
+  // ------------------------------------------------------------- rendering
+  // public so the render benchmark can call it without a terminal
+  draw(fb, pf, input, paused, cursor) {
+    fb.clear(8, 8, 14);
+
+    const bx = Math.round(pf.ox), by = Math.round(pf.oy);
+    const bw = Math.round(pf.w), bh = Math.round(pf.h);
+    for (let x = bx; x <= bx + bw; x++) { fb.set(x, by, 40, 40, 60); fb.set(x, by + bh, 40, 40, 60); }
+    for (let y = by; y <= by + bh; y++) { fb.set(bx, y, 40, 40, 60); fb.set(bx + bw, y, 40, 40, 60); }
+
+    const pre = this.diff.preempt, fade = this.diff.fadeIn;
+    const rad = pf.len(this.diff.radius);
+
+    const visible = [];
+    for (let i = Math.max(0, this.nextIndex - 8); i < this.objects.length; i++) {
+      const o = this.objects[i];
+      if (o.time - this.time > pre) break;
+      if (o.result && this.time - o.resultAt > 220) continue;
+      if (this.time > o.endTime + 250) continue;
+      visible.push(o);
+    }
+    for (let i = visible.length - 1; i >= 0; i--) this.#drawObject(fb, pf, visible[i], rad, pre, fade);
+
+    this.#drawHud(fb, paused);
+    this.#drawCursor(fb, pf, input, cursor);
+  }
+
+  #drawObject(fb, pf, o, rad, pre, fade) {
+    const dt = o.time - this.time;
+    const [cr, cg, cb] = COMBO_COLOURS[o.comboColour];
+    const alpha = Math.max(0, Math.min(1, (pre - dt) / fade));
+    if (alpha <= 0) return;
+
+    if (o.kind === 'slider') this.#drawSlider(fb, pf, o, rad, alpha, [cr, cg, cb]);
+
+    const cx = pf.sx(o.x), cy = pf.sy(o.y);
+
+    if (o.result) {
+      const age = (this.time - o.resultAt) / 220;
+      if (age < 1) {
+        const jc = JUDGE[o.result].colour;
+        fb.strokeCircle(cx, cy, rad * (1 + age * 0.7), 1.6, jc[0], jc[1], jc[2], (1 - age) * 0.8);
+      }
+      return;
+    }
+
+    // keep drawing the head circle until the head is judged
+    if (!o.headResult) {
+      fb.fillCircle(cx, cy, rad, cr * 0.32, cg * 0.32, cb * 0.32, alpha * 0.85);
+      fb.strokeCircle(cx, cy, rad, 1.8, cr, cg, cb, alpha);
+      if (dt > 0) fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, alpha * 0.75);
+      const label = String(o.combo);
+      if (rad > 3) fb.text(Math.round(cx - label.length / 2), Math.round(cy / 2), label, 0xffffff, null);
+    }
+  }
+
+  #drawSlider(fb, pf, o, rad, alpha, [cr, cg, cb]) {
+    const path = o.path;
+    // stamp discs along the path. spacing is based on the radius so the body stays
+    // solid without doing one disc per pixel, which would be way too slow on long ones.
+    const step = Math.max(1.2, rad / 2.5);
+    const n = Math.max(2, Math.ceil(pf.len(path.length) / step));
+    const bodyA = alpha * 0.5;
+
+    for (let i = 0; i <= n; i++) {
+      const p = path.positionAt(i / n);
+      fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.92, cr * 0.22, cg * 0.22, cb * 0.22, bodyA);
+    }
+    for (let i = 0; i <= n; i++) {
+      const p = path.positionAt(i / n);
+      fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.34, cr * 0.55, cg * 0.55, cb * 0.55, bodyA);
+    }
+
+    // tail marker
+    const tail = path.positionAt(o.slides % 2 === 1 ? 1 : 0);
+    fb.strokeCircle(pf.sx(tail.x), pf.sy(tail.y), rad * 0.8, 1.2, cr, cg, cb, alpha * 0.7);
+
+    // pending repeat arrows
+    for (let i = o.nextRepeat; i < o.repeats.length; i++) {
+      const r = o.repeats[i];
+      fb.strokeCircle(pf.sx(r.x), pf.sy(r.y), rad * 0.5, 1.4, 255, 255, 255, alpha * 0.8);
+      break;   // only draw the next one, same as osu
+    }
+
+    // pending ticks
+    for (let i = o.nextTick; i < o.ticks.length; i++) {
+      const tk = o.ticks[i];
+      if (tk.time - this.time > this.diff.preempt) break;
+      fb.fillCircle(pf.sx(tk.x), pf.sy(tk.y), Math.max(1, rad * 0.13), 255, 255, 255, alpha * 0.75);
+    }
+
+    // ball and follow circle while the slider is going
+    if (this.time >= o.time && this.time <= o.endTime && !o.finalized) {
+      const b = o.path.positionAt(sliderProgress(o, this.time));
+      const bx = pf.sx(b.x), by = pf.sy(b.y);
+      fb.fillCircle(bx, by, rad * 0.55, cr, cg, cb, 0.95);
+      fb.strokeCircle(bx, by, rad * (o.tracking ? FOLLOW_SCALE : 1.15), o.tracking ? 1.6 : 1,
+        o.tracking ? 255 : 160, o.tracking ? 230 : 160, o.tracking ? 120 : 160,
+        o.tracking ? 0.85 : 0.4);
+    }
+  }
+
+  #drawCursor(fb, pf, input, cursor) {
+    const c = cursor ?? { x: 256, y: 192 };
+    const cx = pf.sx(c.x), cy = pf.sy(c.y);
+    const hot = input.anyDown;
+    const r = hot ? 2.6 : 2.0;
+    fb.fillCircle(cx, cy, r, hot ? 255 : 235, hot ? 210 : 235, hot ? 90 : 245, 0.95);
+    fb.strokeCircle(cx, cy, r + 1.4, 1, 255, 255, 255, 0.55);
+  }
+
+  #drawHud(fb, paused) {
+    const c = this.counts;
+    const acc = (this.accuracy * 100).toFixed(2);
+    const m = this.map;
+
+    fb.text(1, 0, `${m.artist} - ${m.title} [${m.diffName}]`.slice(0, fb.cols - 24), 0x9aa4b8);
+    const right = `${String(this.score).padStart(8, '0')}   ${acc}%`;
+    fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
+
+    fb.text(1, fb.rows - 1, `${this.combo}x`, this.combo > 0 ? 0xffd257 : 0x555555);
+    const stats = `300:${c.GREAT}  100:${c.OK}  50:${c.MEH}  X:${c.MISS}`;
+    fb.text(Math.floor((fb.cols - stats.length) / 2), fb.rows - 1, stats, 0x8a94a8);
+    const help = `off:${this.audioOffsetMs >= 0 ? '+' : ''}${this.audioOffsetMs}ms  [±] [space] [q]`;
+    fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
+
+    const filled = Math.round(this.progress * fb.cols);
+    for (let x = 0; x < fb.cols; x++) {
+      const on = x < filled;
+      fb.set(x, 0, on ? 90 : 26, on ? 150 : 26, on ? 220 : 34);
+    }
+
+    if (this.errors.length) {
+      const w = this.diff.windows.meh;
+      const barW = Math.min(60, fb.cols - 20);
+      const x0 = Math.floor((fb.cols - barW) / 2);
+      const y = fb.height - 6;
+      for (let i = 0; i < barW; i++) fb.set(x0 + i, y, 42, 42, 54);
+      fb.set(x0 + (barW >> 1), y, 200, 200, 200);
+      for (let i = 0; i < this.errors.length; i++) {
+        const e = this.errors[i];
+        const age = i / this.errors.length;
+        const px = x0 + Math.round(((e / w) * 0.5 + 0.5) * barW);
+        const ad = Math.abs(e), win = this.diff.windows;
+        const col = ad <= win.great ? [90, 200, 255] : ad <= win.ok ? [120, 230, 120] : [230, 200, 100];
+        fb.blend(px, y, col[0], col[1], col[2], 0.25 + age * 0.75);
+      }
+    }
+
+    if (paused) fb.textCentered(Math.floor(fb.rows / 2), '  PAUSED - space to resume  ', 0x000000, 0xffd257);
+    else if (this.time < 0) this.#drawCountdown(fb);
+  }
+
+  // shown while song time is negative, so during the lead in
+  #drawCountdown(fb) {
+    const remain = -this.time;
+    const row = Math.floor(fb.rows / 2);
+    const secs = Math.ceil(remain / 1000);
+
+    // bar that empties as the lead in runs out, plus a number so it's obvious
+    const width = Math.min(40, fb.cols - 8);
+    const left = Math.round((remain / this.leadInMs) * width);
+    const bar = '='.repeat(Math.max(0, left)) + ' '.repeat(Math.max(0, width - left));
+    fb.textCentered(row - 1, `  ${secs}  `, 0xffd257);
+    fb.textCentered(row, bar, 0x4a5262);
+    fb.textCentered(row + 2, 'get ready', 0x8a94a8);
+  }
+
+  #summary() {
+    const c = this.counts;
+    return {
+      score: this.score, maxCombo: this.maxCombo, accuracy: this.accuracy,
+      counts: { ...c },
+      meanError: this.errors.length ? this.errors.reduce((a, b) => a + b, 0) / this.errors.length : 0,
+      rank: this.accuracy >= 1 ? 'SS' : this.accuracy >= 0.95 ? 'S' : this.accuracy >= 0.9 ? 'A'
+          : this.accuracy >= 0.8 ? 'B' : this.accuracy >= 0.7 ? 'C' : 'D',
+    };
+  }
+}
