@@ -428,8 +428,7 @@ export class Game {
       fb.fillCircle(cx, cy, rad, cr * 0.32, cg * 0.32, cb * 0.32, alpha * 0.85);
       fb.strokeCircle(cx, cy, rad, 1.8, cr, cg, cb, alpha);
       if (dt > 0) fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, alpha * 0.75);
-      const label = String(o.combo);
-      if (rad > 3) fb.text(Math.round(cx - label.length / 2), Math.round(cy / 2), label, 0xffffff, null);
+      if (rad > 3) fb.drawCombo(cx, cy, o.combo, rad, 255, 255, 255, alpha);
     }
   }
 
