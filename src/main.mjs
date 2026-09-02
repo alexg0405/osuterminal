@@ -9,7 +9,7 @@
 //
 // flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
 
-import { readdir, access } from 'node:fs/promises';
+import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -97,7 +97,17 @@ const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 async function loadLibrary(songsDir) {
   let dirs;
   try { dirs = await readdir(songsDir, { withFileTypes: true }); }
-  catch {
+  catch (err) {
+    // no osu! install (or first run) — create the folder and treat it as an empty library
+    // so the downloader opens instead of dying.
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      try { await mkdir(songsDir, { recursive: true }); }
+      catch {
+        throw new Error(`Cannot create the songs folder:\n  ${songsDir}\n\n` +
+          `Point somewhere else with  --songs <dir>  (it will be remembered).`);
+      }
+      return [];
+    }
     throw new Error(`Cannot read the songs folder:\n  ${songsDir}\n\n` +
       `Point somewhere else with  --songs <dir>  (it will be remembered).`);
   }
@@ -207,6 +217,7 @@ async function main() {
   }
 
   let maps = await loadLibrary(args.songs);
+  if (args.list) return printList(maps);
 
   // an empty library used to be a dead end. now it just means you need maps.
   if (!maps.length) {
@@ -219,8 +230,6 @@ async function main() {
     maps = await loadLibrary(args.songs);
     if (!maps.length) return;
   }
-
-  if (args.list) return printList(maps);
 
   const q = args.terms.join(' ').toLowerCase();
   if (q) {
