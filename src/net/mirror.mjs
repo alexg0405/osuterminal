@@ -91,37 +91,48 @@ export class NotHostedError extends Error {
 }
 
 // is this set downloadable at all? search comes from osu's metadata, so plenty of
-// results are not actually hosted anywhere.
+// results are not hosted on any mirror.
 //
-// HEAD is no good here: catboy 404s on HEAD even for maps it has, and nerinyan just
-// returns 405. and a Range request does not help either, catboy ignores it and starts
-// sending the whole file. so start a normal GET, look at the status, and abort before
-// reading any of the body.
-// mirrors are asked in parallel, not one after another. going in sequence meant a fast
-// 404 from catboy still had to wait out a slow nerinyan, which took over ten seconds
-// and is far too slow to run off a highlight.
-export async function checkAvailable(setId, timeoutMs = 5000) {
-  const probe = async (m) => {
+// HEAD is no good for this: catboy 404s on HEAD even for maps it has, and nerinyan
+// returns 405. a Range request does not work either, catboy ignores it and starts
+// sending the whole file. so it starts a normal GET, reads the status, and aborts
+// before touching the body.
+//
+// this only ever runs for the one set you are looking at. i tried scanning a whole
+// page of 30 in parallel and catboy 403'd everything including search for a good
+// while afterwards. not worth it.
+let rateLimited = false;
+export const isRateLimited = () => rateLimited;
+export const clearRateLimit = () => { rateLimited = false; };
+
+// 'yes' hosted, 'no' definitely not hosted, 'unknown' could not tell.
+// only a real 404 means 'no'. a 403 or a timeout means we were blocked or the mirror is
+// having a bad day, and treating that as 'not hosted' marks half the page dead wrongly.
+export async function checkAvailable(setId, { timeoutMs = 5000, fetchImpl = fetch } = {}) {
+  if (rateLimited) return { status: 'unknown', mirror: null };
+
+  let saw404 = false;
+  for (const m of MIRRORS) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const res = await fetch(m.download(setId), { signal: ctrl.signal, redirect: 'follow' });
-      const ok = res.ok && !/text\/html/i.test(res.headers.get('content-type') ?? '');
-      ctrl.abort();                       // tear it down, we only wanted the status
-      if (!ok) throw new Error('unavailable');
-      return m.name;
+      const res = await fetchImpl(m.download(setId), { signal: ctrl.signal, redirect: 'follow' });
+      ctrl.abort();                        // we only wanted the status line
+
+      if (res.status === 403 || res.status === 429) { rateLimited = true; continue; }
+      if (res.status === 404) { saw404 = true; continue; }
+      if (res.ok && !/text\/html/i.test(res.headers.get('content-type') ?? '')) {
+        return { status: 'yes', mirror: m.name };
+      }
+    } catch {
+      /* timeout or network error, tells us nothing */
     } finally {
       clearTimeout(timer);
     }
-  };
-
-  try {
-    // first mirror to say yes wins; rejects only when every one of them fails
-    const mirror = await Promise.any(MIRRORS.map(probe));
-    return { available: true, mirror };
-  } catch {
-    return { available: false, mirror: null };
   }
+
+  if (rateLimited) return { status: 'unknown', mirror: null };
+  return { status: saw404 ? 'no' : 'unknown', mirror: null };
 }
 
 /**
@@ -136,6 +147,11 @@ export async function download(setId, onProgress = null) {
     try {
       const res = await fetchWithTimeout(m.download(setId), {}, 120000);
       if (!res.ok) {
+        if (res.status === 403 || res.status === 429) {
+          rateLimited = true;
+          all404 = false;
+          throw new Error(`${m.name} is rate limiting us`);
+        }
         if (res.status !== 404) all404 = false;
         throw new Error(`${m.name} ${res.status}`);
       }
@@ -156,6 +172,7 @@ export async function download(setId, onProgress = null) {
       if (buf.length < 1024) { all404 = false; throw new Error(`${m.name} sent ${buf.length} bytes`); }
       // zips start with PK
       if (buf[0] !== 0x50 || buf[1] !== 0x4b) { all404 = false; throw new Error(`${m.name} sent something that is not a zip`); }
+      rateLimited = false;                 // clearly working again
       return { mirror: m.name, buffer: buf };
     } catch (e) {
       if (e.name === 'AbortError') { all404 = false; errors.push(`${m.name} timed out`); }
