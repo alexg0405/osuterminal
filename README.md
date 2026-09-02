@@ -2,7 +2,7 @@
 
 osu!standard in a terminal, with mouse aim and hit circles.
 
-Reads your existing osu! Songs folder.
+Reads your existing osu! Songs folder, or downloads maps for you if you don't have one.
 
 ## install
 
@@ -19,10 +19,28 @@ osuterminal --calibrate           # run this first
 osuterminal                       # song select
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
+osuterminal --download            # get more maps
 osuterminal --list
 ```
 
 z / x / mouse to hit, space to pause, +/- to nudge offset, q to quit.
+
+## downloading maps
+
+You don't need osu! installed. `osuterminal --download` opens a browser: type a query,
+enter to search, arrows to move around, enter again to download. Tab gets you there
+from song select too, and if your Songs folder is empty it just opens automatically.
+
+Maps come from catboy.best with nerinyan as a backup. No account or api key needed.
+Video and storyboard files get stripped since nothing here can show them and they're
+usually most of the download.
+
+There's a non-interactive version too:
+
+```bash
+osuterminal --search "nekodex"    # prints ids
+osuterminal --get 354366
+```
 
 ## calibration
 
@@ -104,6 +122,9 @@ src/render/framebuffer.mjs half block framebuffer
 src/input/input.mjs        the input split described above
 src/game.mjs               judgement, scoring, drawing
 src/select.mjs             song select
+src/net/mirror.mjs         beatmap mirror search and download
+src/net/osz.mjs            .osz extraction
+src/net/browse.mjs         download browser
 src/main.mjs               cli
 tools/                     tests and benchmarks
 ```
@@ -124,8 +145,8 @@ npm scripts exist too but PowerShell blocks npm's .ps1 shim by default, so eithe
 
 ## requirements
 
-Windows, node 20+, terminal at least 60x20. koffi and mpg123-decoder both ship prebuilt
-so you don't need a compiler.
+Windows, node 20+, terminal at least 60x20. koffi, mpg123-decoder and fflate are all
+prebuilt or pure js so you don't need a compiler.
 
 Input is Windows only right now. There's a VT fallback that works anywhere but you lose
 pixel accurate aim.
