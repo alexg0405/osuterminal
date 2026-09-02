@@ -22,6 +22,7 @@ import { Beatmap } from './core/beatmap.mjs';
 import { decodeAudio } from './audio/decode.mjs';
 import { Game } from './game.mjs';
 import { selectSong } from './select.mjs';
+import { showResult } from './result.mjs';
 import { browseOnline } from './net/browse.mjs';
 import { search as searchMirror, download as downloadSet } from './net/mirror.mjs';
 import { extractOsz } from './net/osz.mjs';
@@ -203,6 +204,7 @@ ${bold('options')}
 ${bold('in game')}
   z / x / mouse      hit
   esc                pause, then r retry or q song select
+  after a map        results: r retry, enter song select
 
 config: ${dim(CONFIG)}
 `);
@@ -364,22 +366,18 @@ async function play(chosen, args) {
   console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause`));
   await new Promise((r) => setTimeout(r, 700));
 
-  // retry from the pause screen just replays the same map. q goes back to song select.
+  // retry from pause or the results screen replays the same map. q from pause
+  // skips results and goes back to song select.
   for (;;) {
     const result = await game.run(audio);
     if (result.restart) { game.reset(); continue; }
     if (result.quitApp) return { quitApp: true };
-    if (!result.toMenu) printResult(result);
+    if (result.toMenu) return { toMenu: true };
+    const next = await showResult(chosen, result);
+    if (next?.type === 'retry') { game.reset(); continue; }
+    if (next?.type === 'quit') return { quitApp: true };
     return { toMenu: true };
   }
-}
-
-function printResult(result) {
-  const c = result.counts;
-  const err = `${result.meanError >= 0 ? '+' : ''}${result.meanError.toFixed(0)}ms`;
-  console.log(bold(`\n${result.rank}  ${(result.accuracy * 100).toFixed(2)}%`) +
-    dim(`   ${result.score}   ${result.maxCombo}x`));
-  console.log(dim(`300:${c.GREAT}  100:${c.OK}  50:${c.MEH}  miss:${c.MISS}   ${err}\n`));
 }
 
 main().catch((e) => { console.error(`\n\x1b[31m${e.message}\x1b[0m\n`); process.exit(1); });

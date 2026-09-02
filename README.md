@@ -40,7 +40,7 @@ osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter (gold S, green A, and so on). r retries from there too; enter goes back to song select.
 
 Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else needed.
 
@@ -173,6 +173,7 @@ node tools/origin-test.mjs   # cursor origin solver
 node tools/engine-spike.mjs  # audio clock
 node tools/render-bench.mjs  # frame timing
 node tools/select-test.mjs   # song select keys
+node tools/result-test.mjs   # ranking grades + results screen
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo
 node tools/probe.mjs         # what your terminal supports

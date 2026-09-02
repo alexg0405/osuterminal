@@ -1,6 +1,6 @@
 {
   "name": "osuterminal",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "type": "module",
   "description": "osu!standard, playable in a terminal",
   "license": "MIT",
@@ -44,7 +44,8 @@
     "bench": "node tools/render-bench.mjs",
     "test:origin": "node tools/origin-test.mjs",
     "test:library": "node tools/library-test.mjs",
-    "test:decode": "node tools/decode-test.mjs"
+    "test:decode": "node tools/decode-test.mjs",
+    "test:result": "node tools/result-test.mjs"
   },
   "engines": {
     "node": ">=20"

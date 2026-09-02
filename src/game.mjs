@@ -6,6 +6,7 @@ import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
 import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
+import { rankFromCounts } from './grade.mjs';
 import { stdout } from 'node:process';
 
 const CSI = '\x1b[';
@@ -558,8 +559,7 @@ export class Game {
       score: this.score, maxCombo: this.maxCombo, accuracy: this.accuracy,
       counts: { ...c },
       meanError: this.errors.length ? this.errors.reduce((a, b) => a + b, 0) / this.errors.length : 0,
-      rank: this.accuracy >= 1 ? 'SS' : this.accuracy >= 0.95 ? 'S' : this.accuracy >= 0.9 ? 'A'
-          : this.accuracy >= 0.8 ? 'B' : this.accuracy >= 0.7 ? 'C' : 'D',
+      rank: rankFromCounts(c),
     };
   }
 }
