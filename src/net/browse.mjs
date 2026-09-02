@@ -3,9 +3,16 @@
 // type a query, enter to search, arrows to move through results, enter again to
 // download. same two pane layout as the offline song select so it doesn't feel like a
 // different app.
+//
+// search comes from osu's metadata, so a chunk of what comes back is not actually
+// hosted on any mirror. whichever set you highlight gets checked in the background and
+// marked, and tab hides everything already known to be dead.
+//
+// only the highlighted one, deliberately. scanning a whole page at once got catboy to
+// 403 everything for a while.
 
 import { stdin, stdout } from 'node:process';
-import { search, download, checkAvailable, NotHostedError } from './mirror.mjs';
+import { search, download, checkAvailable, isRateLimited, NotHostedError } from './mirror.mjs';
 import { extractOsz, alreadyHave } from './osz.mjs';
 
 const CSI = '\x1b[';
@@ -34,14 +41,12 @@ function starColour(sr) {
 const pad = (s, n) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s.padEnd(n));
 const secs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
-/**
- * runs the browser. returns the number of sets downloaded so the caller knows
- * whether to reload the library.
- */
+// returns how many sets were downloaded, so the caller knows whether to reload
 export function browseOnline(songsDir) {
   return new Promise((resolve) => {
     let query = '';
-    let results = [];
+    let results = [];             // everything the search gave us
+    let view = [];                // what is actually on screen after filtering
     let setIdx = 0, diffIdx = 0, scroll = 0;
     let mode = 'typing';          // typing | browsing
     let statusLine = 'type something and hit enter';
@@ -49,11 +54,19 @@ export function browseOnline(songsDir) {
     let downloaded = 0;
     let owned = new Set();
     let done = false;
-    // search comes from osu's metadata so a lot of results are not actually hosted.
-    // check the highlighted one in the background rather than letting you find out
-    // after picking it.
-    const avail = new Map();          // setId -> true | false | 'checking'
+    let hideDead = false;         // tab toggles this
+    const avail = new Map();      // setId -> 'yes' | 'no' | 'checking'
     let availTimer = null;
+
+    const rebuildView = () => {
+      const keep = hideDead ? results.filter((r) => avail.get(r.id) !== 'no') : results;
+      // keep the highlight on the same set across a filter toggle where possible
+      const wasOn = view[setIdx]?.id;
+      view = keep;
+      const again = view.findIndex((r) => r.id === wasOn);
+      setIdx = again >= 0 ? again : clamp(setIdx, 0, Math.max(0, view.length - 1));
+      diffIdx = 0;
+    };
 
     const draw = () => {
       const rows = stdout.rows ?? 24, cols = stdout.columns ?? 80;
@@ -70,21 +83,23 @@ export function browseOnline(songsDir) {
       out.push(`  ${DIM}search${RESET} ${BRIGHT}${query}${caret}${RESET}\r\n`);
       out.push(`  ${DIM}${statusLine}${RESET}\r\n\r\n`);
 
-      const cur = results[setIdx];
+      const cur = view[setIdx];
       for (let i = 0; i < listH; i++) {
         const idx = scroll + i;
         out.push('  ');
-        if (idx < results.length) {
-          const s = results[idx];
+        if (idx < view.length) {
+          const s = view[idx];
           const sel = idx === setIdx && mode === 'browsing';
-          const have = owned.has(s.id);
           const a = avail.get(s.id);
-          // + already downloaded, x nobody hosts it, ? still checking
-          const mark = have ? `${GREEN}+${RESET}`
-            : a === false ? `${RED}x${RESET}`
+          // + already have it, x nobody hosts it, ? checking, blank means not looked at
+          const mark = owned.has(s.id) ? `${GREEN}+${RESET}`
+            : a === 'no' ? `${RED}x${RESET}`
             : a === 'checking' ? `${DIM}?${RESET}` : ' ';
+          const dead = a === 'no';
           const label = pad(`${s.artist} - ${s.title}`, leftW - 4);
-          out.push(mark + (sel ? `${bg(0x2a3040)}${BRIGHT} ${label} ${RESET}` : `${TEXT} ${label} ${RESET}`));
+          const body = sel ? `${bg(0x2a3040)}${BRIGHT} ${label} ${RESET}`
+            : dead ? `${DIM} ${label} ${RESET}` : `${TEXT} ${label} ${RESET}`;
+          out.push(mark + body);
         } else {
           out.push(' '.repeat(leftW - 1));
         }
@@ -105,29 +120,15 @@ export function browseOnline(songsDir) {
       out.push('\r\n');
       if (cur) {
         out.push(`  ${GOLD}${pad(cur.creator, 20)}${RESET}${DIM} ${cur.bpm} bpm  ${cur.status}` +
-                 `  ${cur.diffs.length} diffs${cur.hasVideo ? '  (has video, skipped on download)' : ''}${RESET}\r\n`);
+                 `  ${cur.diffs.length} diffs${cur.hasVideo ? '  (has video, skipped)' : ''}${RESET}\r\n`);
       } else {
         out.push('\r\n');
       }
+      const filterHint = hideDead ? `${GREEN}hiding unavailable${RESET}${DIM}` : 'tab hide unavailable';
       out.push(mode === 'typing'
-        ? `  ${DIM}enter search   down to browse results   esc back${RESET}`
-        : `  ${DIM}up/down sets   enter download   left/right diffs   esc back to search${RESET}`);
+        ? `  ${DIM}enter search   down to browse   ${filterHint}   esc back${RESET}`
+        : `  ${DIM}up/down sets   enter download   left/right diffs   ${filterHint}   esc back${RESET}`);
       stdout.write(out.join(''));
-    };
-
-    const queueAvailCheck = () => {
-      const s2 = results[setIdx];
-      if (!s2 || avail.has(s2.id) || owned.has(s2.id)) return;
-      clearTimeout(availTimer);
-      availTimer = setTimeout(async () => {
-        const id = results[setIdx]?.id;
-        if (!id || avail.has(id)) return;
-        avail.set(id, 'checking');
-        draw();
-        const { available } = await checkAvailable(id);
-        avail.set(id, available);
-        if (!done) draw();
-      }, 350);
     };
 
     const refreshOwned = async () => {
@@ -135,21 +136,46 @@ export function browseOnline(songsDir) {
       for (const r of results) if (await alreadyHave(songsDir, r.id)) owned.add(r.id);
     };
 
+    // check whatever is highlighted, after it settles for a moment
+    const queueCheck = () => {
+      clearTimeout(availTimer);
+      const s2 = view[setIdx];
+      if (!s2 || avail.has(s2.id) || owned.has(s2.id) || isRateLimited()) return;
+      availTimer = setTimeout(async () => {
+        const id = view[setIdx]?.id;
+        if (!id || avail.has(id)) return;
+        avail.set(id, 'checking');
+        draw();
+        const { status } = await checkAvailable(id);
+        // 'unknown' means the mirror would not say, so leave it unmarked rather than
+        // claiming it is missing
+        if (status === 'unknown') avail.delete(id); else avail.set(id, status);
+        if (hideDead && status === 'no') rebuildView();
+        if (!done) draw();
+      }, 400);
+    };
+
     const doSearch = async () => {
       if (!query.trim() || busy) return;
       busy = true;
+      clearTimeout(availTimer);
       statusLine = 'searching...';
       draw();
       try {
         const { mirror, results: r } = await search(query, { limit: 50 });
         results = r;
+        avail.clear();
         setIdx = 0; diffIdx = 0; scroll = 0;
         await refreshOwned();
+        rebuildView();
         statusLine = r.length ? `${r.length} sets from ${mirror}` : 'nothing found';
         mode = r.length ? 'browsing' : 'typing';
-        queueAvailCheck();
+        busy = false;
+        draw();
+        queueCheck();
+        return;
       } catch (e) {
-        results = [];
+        results = []; view = [];
         statusLine = `search failed: ${e.message}`;
       }
       busy = false;
@@ -157,7 +183,7 @@ export function browseOnline(songsDir) {
     };
 
     const doDownload = async () => {
-      const s = results[setIdx];
+      const s = view[setIdx];
       if (!s || busy) return;
       busy = true;
       try {
@@ -166,7 +192,7 @@ export function browseOnline(songsDir) {
         let lastDraw = 0;
         const { buffer } = await download(s.id, (got, total) => {
           const now = Date.now();
-          if (now - lastDraw < 120) return;         // don't repaint on every chunk
+          if (now - lastDraw < 120) return;
           lastDraw = now;
           statusLine = total
             ? `downloading ${Math.floor((got / total) * 100)}%  (${(total / 1048576).toFixed(1)} MiB)`
@@ -178,11 +204,15 @@ export function browseOnline(songsDir) {
         const r = await extractOsz(buffer, songsDir, { setId: s.id, artist: s.artist, title: s.title });
         downloaded++;
         owned.add(s.id);
+        avail.set(s.id, 'yes');
         statusLine = `${GREEN}saved ${r.osuCount} difficulties to ${r.folder}${RESET}${DIM}`;
       } catch (e) {
         if (e instanceof NotHostedError) {
-          avail.set(s.id, false);
-          statusLine = `${RED}no mirror has this one${RESET}${DIM} (search lists maps that are not hosted anywhere)`;
+          avail.set(s.id, 'no');
+          if (hideDead) rebuildView();
+          statusLine = `${RED}no mirror has this one${RESET}${DIM}`;
+        } else if (isRateLimited()) {
+          statusLine = `${RED}mirror is rate limiting us${RESET}${DIM} give it a minute`;
         } else {
           statusLine = `${RED}failed${RESET}${DIM} ${e.message}`;
         }
@@ -211,6 +241,13 @@ export function browseOnline(songsDir) {
         if (mode === 'browsing') { mode = 'typing'; return draw(); }
         return finish();
       }
+      if (s === '\t') {
+        hideDead = !hideDead;
+        rebuildView();
+        const dead = [...avail.values()].filter((v) => v === 'no').length;
+        statusLine = hideDead ? `hiding ${dead} unavailable` : `showing all ${results.length}`;
+        return draw();
+      }
       if (s === '\r' || s === '\n') {
         return mode === 'typing' ? doSearch() : doDownload();
       }
@@ -222,21 +259,21 @@ export function browseOnline(songsDir) {
 
       if (s.startsWith('\x1b[')) {
         const k = s[2];
-        if (!results.length) return;
+        if (!view.length) return;
         if (k === 'B') {
           if (mode === 'typing') { mode = 'browsing'; setIdx = 0; }
-          else setIdx = clamp(setIdx + 1, 0, results.length - 1);
+          else setIdx = clamp(setIdx + 1, 0, view.length - 1);
           diffIdx = 0;
         } else if (k === 'A') {
           if (mode === 'browsing' && setIdx === 0) mode = 'typing';
-          else setIdx = clamp(setIdx - 1, 0, results.length - 1);
+          else setIdx = clamp(setIdx - 1, 0, view.length - 1);
           diffIdx = 0;
         } else if (k === 'D') {
-          diffIdx = clamp(diffIdx - 1, 0, Math.max(0, (results[setIdx]?.diffs.length ?? 1) - 1));
+          diffIdx = clamp(diffIdx - 1, 0, Math.max(0, (view[setIdx]?.diffs.length ?? 1) - 1));
         } else if (k === 'C') {
-          diffIdx = clamp(diffIdx + 1, 0, Math.max(0, (results[setIdx]?.diffs.length ?? 1) - 1));
+          diffIdx = clamp(diffIdx + 1, 0, Math.max(0, (view[setIdx]?.diffs.length ?? 1) - 1));
         }
-        queueAvailCheck();
+        queueCheck();
         return draw();
       }
 
