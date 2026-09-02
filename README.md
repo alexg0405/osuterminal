@@ -20,12 +20,13 @@ osuterminal                       # song select
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
+osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
 
 z / x / mouse to hit, esc to pause. from the pause screen r retries and q quits.
 
-Rebind the tap keys with `--keys ab`, it remembers.
+Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else needed.
 
 ## downloading maps
 
