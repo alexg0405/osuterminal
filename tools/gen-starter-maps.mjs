@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // writes the two beginner maps that ship inside the npm package.
 // original audio (not from osu!), so we can redistribute it.
+// 44100 stereo — 22050 mono made waveOut freeze on some windows machines.
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bundled');
-const RATE = 22050;
+const RATE = 44100;
+const CH = 2;
 
 function writeWav(pcm) {
   const header = Buffer.alloc(44);
@@ -17,10 +19,10 @@ function writeWav(pcm) {
   header.write('fmt ', 12);
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22);
+  header.writeUInt16LE(CH, 22);
   header.writeUInt32LE(RATE, 24);
-  header.writeUInt32LE(RATE * 2, 28);
-  header.writeUInt16LE(2, 32);
+  header.writeUInt32LE(RATE * CH * 2, 28);
+  header.writeUInt16LE(CH * 2, 32);
   header.writeUInt16LE(16, 34);
   header.write('data', 36);
   header.writeUInt32LE(pcm.length, 40);
@@ -29,7 +31,7 @@ function writeWav(pcm) {
 
 function synth({ bpm, seconds, melody, bass }) {
   const frames = Math.ceil(seconds * RATE);
-  const pcm = Buffer.alloc(frames * 2);
+  const pcm = Buffer.alloc(frames * CH * 2);
   const beat = 60 / bpm;
   const twoPi = 2 * Math.PI;
 
@@ -38,7 +40,6 @@ function synth({ bpm, seconds, melody, bass }) {
     const beatIdx = Math.floor(t / beat);
     const inBeat = (t / beat) % 1;
 
-    // kick on every beat, hat on offbeats
     const kick = Math.exp(-inBeat * 18) * Math.sin(twoPi * (90 + inBeat * 40) * t);
     const hat = (beatIdx % 2 === 1) ? Math.exp(-inBeat * 40) * (Math.random() * 2 - 1) * 0.25 : 0;
 
@@ -50,8 +51,9 @@ function synth({ bpm, seconds, melody, bass }) {
     const low = bNote ? Math.sin(twoPi * bNote * t) * bassEnv * 0.45 : 0;
 
     const s = (kick * 0.55 + hat * 0.2 + mel * 0.5 + low) * 0.7;
-    const v = Math.max(-1, Math.min(1, s));
-    pcm.writeInt16LE(Math.round(v * 32767), i * 2);
+    const v = Math.max(-32768, Math.min(32767, Math.round(Math.max(-1, Math.min(1, s)) * 32767)));
+    pcm.writeInt16LE(v, i * 4);
+    pcm.writeInt16LE(v, i * 4 + 2);
   }
   return writeWav(pcm);
 }
@@ -96,7 +98,6 @@ const circle = (x, y, t, combo = false) => `${x},${y},${t},${combo ? 5 : 1},0,0:
 const slider = (x, y, t, tx, ty, len, combo = false) =>
   `${x},${y},${t},${combo ? 6 : 2},0,L|${tx}:${ty},1,${len}`;
 
-// 80bpm, quarters on every other beat — about 2 star
 function warmupObjects() {
   const beat = 750;
   const pts = [[128, 192], [384, 192], [256, 96], [256, 288]];
@@ -110,7 +111,6 @@ function warmupObjects() {
   return out;
 }
 
-// 100bpm, 1/1 circles plus a few one-beat sliders — about 3 star
 function firstStepsObjects() {
   const beat = 600;
   const square = [[128, 128], [384, 128], [384, 256], [128, 256]];
@@ -121,7 +121,6 @@ function firstStepsObjects() {
     out.push(circle(x, y, t, i % 4 === 0));
     t += beat;
   }
-  // a few horizontal sliders, one beat each (pixelLength 140 at SM 1.4)
   for (let i = 0; i < 4; i++) {
     const y = i % 2 === 0 ? 160 : 224;
     out.push(slider(96, y, t, 416, y, 140, true));

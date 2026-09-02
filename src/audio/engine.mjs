@@ -6,19 +6,18 @@
 // know in advance, so they have to be mixed in live.
 //
 // so instead there's a ring of small buffers. refill each one when the device finishes
-// with it, and add up music plus whatever samples are playing. the clock works the same
-// way as before, waveOutGetPosition counts samples across the whole stream.
-//
-// ring size is a tradeoff. anything already queued is committed, so a new hitsound
-// can't play until after all of it, which means queue depth equals hitsound latency.
-// too small and a GC pause starves the device, which stalls the clock.
+// with it, and add up music plus whatever samples are playing. the clock prefers
+// waveOutGetPosition (TIME_SAMPLES, then TIME_BYTES) so judgement tracks the hardware.
+// if the device never actually starts — some drivers do this for odd formats, or if
+// WHDR_DONE never comes back and the ring underruns — we fall back to the wall clock
+// so the countdown can't freeze on frame one.
 
 import koffi from 'koffi';
 
 const winmm = koffi.load('winmm.dll');
 
 const waveOutOpen = winmm.func(
-  'uint __stdcall waveOutOpen(_Out_ void **phwo, uint uDeviceID, void *pwfx, size_t cb, size_t inst, uint flags)');
+  'uint __stdcall waveOutOpen(_Out_ void **phwo, uint uDeviceID, void *pwfx, void *cb, size_t inst, uint flags)');
 const waveOutPrepareHeader   = winmm.func('uint __stdcall waveOutPrepareHeader(void *hwo, void *pwh, uint cb)');
 const waveOutUnprepareHeader = winmm.func('uint __stdcall waveOutUnprepareHeader(void *hwo, void *pwh, uint cb)');
 const waveOutWrite           = winmm.func('uint __stdcall waveOutWrite(void *hwo, void *pwh, uint cb)');
@@ -29,16 +28,22 @@ const waveOutPause           = winmm.func('uint __stdcall waveOutPause(void *hwo
 const waveOutRestart         = winmm.func('uint __stdcall waveOutRestart(void *hwo)');
 const waveOutGetErrorText    = winmm.func('uint __stdcall waveOutGetErrorTextA(uint err, _Out_ char *buf, uint cch)');
 
-const WAVE_MAPPER  = 0xffffffff;
-const TIME_SAMPLES = 0x0002;
-const WAVEHDR_SIZE = 48;
-const MMTIME_SIZE  = 12;
+const WAVE_MAPPER           = 0xffffffff;
+const CALLBACK_FUNCTION     = 0x00030000;
+const TIME_MS               = 0x0001;
+const TIME_SAMPLES          = 0x0002;
+const TIME_BYTES            = 0x0004;
+const MMTIME_SIZE           = 12;
 
-// WAVEHDR.dwFlags, at offset 24 on x64
+const PTR                   = process.arch === 'ia32' ? 4 : 8;
+const WAVEHDR_SIZE          = PTR === 8 ? 48 : 32;
+const LEN_OFFSET            = PTR;
+const FLAGS_OFFSET          = PTR === 8 ? 24 : 16;
+
 const WHDR_DONE     = 0x01;
 const WHDR_PREPARED = 0x02;
-const WHDR_INQUEUE  = 0x10;
-const FLAGS_OFFSET  = 24;
+
+const nowMs = () => Number(process.hrtime.bigint()) / 1e6;
 
 function check(code, what) {
   if (code === 0) return;
@@ -60,24 +65,45 @@ function makeWaveFormatEx(channels, sampleRate, bitsPerSample) {
   return wfx;
 }
 
+function writeLpData(hdr, data) {
+  const addr = koffi.address(data);
+  if (PTR === 8) hdr.writeBigUInt64LE(BigInt(addr), 0);
+  else hdr.writeUInt32LE(Number(addr), 0);
+}
+
+let WaveProc = null;
+try {
+  WaveProc = koffi.proto(
+    'void __stdcall WaveProc(void *hwo, uint msg, size_t inst, size_t p1, size_t p2)');
+} catch { /* proto unavailable, open with CALLBACK_NULL */ }
+
 export class AudioEngine {
   #hwo = null;
-  #buffers = [];      // PCM byte buffers handed to the device
-  #headers = [];      // WAVEHDRs, kept prepared and reused
+  #buffers = [];
+  #headers = [];
   #mmtime = Buffer.alloc(MMTIME_SIZE);
-  #mix = null;        // Float32 accumulator, reused every fill
+  #mix = null;
   #voices = [];
   #music = null;
   #musicFrames = 0;
-  #writeFrame = 0;    // absolute frame index of the next frame we will generate
+  #writeFrame = 0;
   #started = false;
   #paused = false;
+  #cb = null;
 
-  // total buffered audio is bufferMs * bufferCount
+  #startedAt = 0;
+  #pausedAt = 0;
+  #pauseAccum = 0;
+  #lastHwMs = 0;
+  #lastHwWall = 0;
+  #fallback = false;
+  #posMode = 'samples';
+
   constructor({ sampleRate = 44100, channels = 2, bufferMs = 5, bufferCount = 8 } = {}) {
     this.sampleRate = sampleRate;
     this.channels = channels;
     this.bitsPerSample = 16;
+    this.bytesPerFrame = (channels * this.bitsPerSample) / 8;
     this.bufferFrames = Math.max(64, Math.round((sampleRate * bufferMs) / 1000));
     this.bufferCount = bufferCount;
     this.musicGain = 1;
@@ -85,22 +111,38 @@ export class AudioEngine {
     this.underruns = 0;
   }
 
-  // audio already committed ahead of the play head, which is the hitsound latency
   get queueDepthMs() { return (this.bufferFrames * this.bufferCount / this.sampleRate) * 1000; }
+  get usingWallClock() { return this.#fallback; }
 
   open() {
     if (this.#hwo) throw new Error('already open');
     const wfx = makeWaveFormatEx(this.channels, this.sampleRate, this.bitsPerSample);
     const out = [null];
-    check(waveOutOpen(out, WAVE_MAPPER, wfx, 0, 0, 0), 'waveOutOpen');
+
+    // CALLBACK_FUNCTION makes more drivers actually set WHDR_DONE. the callback
+    // itself is a no-op — refill stays on the game thread so mixing isn't racy.
+    let opened = false;
+    if (WaveProc) {
+      try {
+        this.#cb = koffi.register(() => {}, WaveProc);
+        check(waveOutOpen(out, WAVE_MAPPER, wfx, this.#cb, 0, CALLBACK_FUNCTION), 'waveOutOpen');
+        opened = true;
+      } catch {
+        try { if (this.#cb) koffi.unregister(this.#cb); } catch {}
+        this.#cb = null;
+      }
+    }
+    if (!opened) {
+      check(waveOutOpen(out, WAVE_MAPPER, wfx, null, 0, 0), 'waveOutOpen');
+    }
     this.#hwo = out[0];
 
-    const bytes = this.bufferFrames * this.channels * 2;
+    const bytes = this.bufferFrames * this.bytesPerFrame;
     for (let i = 0; i < this.bufferCount; i++) {
       const data = Buffer.alloc(bytes);
       const hdr = Buffer.alloc(WAVEHDR_SIZE);
-      hdr.writeBigUInt64LE(BigInt(koffi.address(data)), 0);
-      hdr.writeUInt32LE(bytes, 8);
+      writeLpData(hdr, data);
+      hdr.writeUInt32LE(bytes, LEN_OFFSET);
       check(waveOutPrepareHeader(this.#hwo, hdr, WAVEHDR_SIZE), 'waveOutPrepareHeader');
       this.#buffers.push(data);
       this.#headers.push(hdr);
@@ -109,43 +151,41 @@ export class AudioEngine {
     return this;
   }
 
-  // pcm is interleaved 16 bit at our sample rate
   setMusic(pcm) {
     this.#music = pcm;
-    this.#musicFrames = pcm.length / (this.channels * 2);
+    this.#musicFrames = pcm.length / this.bytesPerFrame;
     return this;
   }
 
   start() {
     if (this.#started) return this;
     this.#started = true;
-    // pause, fill the whole ring, then start. playback begins with a full buffer so
-    // the first frames can't underrun.
-    check(waveOutPause(this.#hwo), 'waveOutPause');
+    this.#startedAt = nowMs();
+    this.#lastHwWall = this.#startedAt;
+    // do not pause before the first write. some drivers then ignore Restart and
+    // GetPosition stays at 0 forever. first Write starts playback; a couple of
+    // ms of race on the first buffer is swallowed by the lead-in silence.
     for (let i = 0; i < this.bufferCount; i++) this.#fillAndSubmit(i);
-    check(waveOutRestart(this.#hwo), 'waveOutRestart');
     return this;
   }
 
-  // refill whatever the device finished with. has to be called at least once per
-  // ring depth of real time, which any normal frame loop does easily.
   pump() {
     if (!this.#started || this.#paused) return;
     let done = 0;
     for (let i = 0; i < this.bufferCount; i++) {
       const flags = this.#headers[i].readUInt32LE(FLAGS_OFFSET);
-      if (!(flags & WHDR_DONE) || (flags & WHDR_INQUEUE)) continue;
+      // WHDR_DONE is the only bit we can trust. some drivers leave INQUEUE set
+      // after finishing, and skipping those starves the ring and freezes the clock.
+      if (!(flags & WHDR_DONE)) continue;
       done++;
       this.#fillAndSubmit(i);
     }
-    // every buffer finished before we got here, so the device ran dry
     if (done === this.bufferCount) this.underruns++;
   }
 
   #fillAndSubmit(i) {
     this.#fill(this.#buffers[i]);
     const hdr = this.#headers[i];
-    // waveOutWrite needs PREPARED set and INQUEUE clear, and we clear DONE ourselves
     hdr.writeUInt32LE(WHDR_PREPARED, FLAGS_OFFSET);
     check(waveOutWrite(this.#hwo, hdr, WAVEHDR_SIZE), 'waveOutWrite');
   }
@@ -154,7 +194,6 @@ export class AudioEngine {
     const n = this.bufferFrames, ch = this.channels, mix = this.#mix;
     mix.fill(0);
 
-    // music
     const music = this.#music;
     if (music) {
       const start = this.#writeFrame;
@@ -166,7 +205,6 @@ export class AudioEngine {
       }
     }
 
-    // samples
     const g = this.effectGain;
     for (let v = this.#voices.length - 1; v >= 0; v--) {
       const voice = this.#voices[v];
@@ -179,7 +217,6 @@ export class AudioEngine {
         const s = (pos + f) * vch;
         if (vch === ch) for (let c = 0; c < ch; c++) mix[f * ch + c] += pcm[s + c] * gain;
         else {
-          // mono into stereo, or stereo folded down to mono
           const mono = vch === 1 ? pcm[s] : (pcm[s] + pcm[s + 1]) / 2;
           for (let c = 0; c < ch; c++) mix[f * ch + c] += mono * gain;
         }
@@ -188,7 +225,6 @@ export class AudioEngine {
       if (voice.pos >= total) this.#voices.splice(v, 1);
     }
 
-    // clamp to int16
     for (let k = 0; k < n * ch; k++) {
       let s = mix[k];
       if (s > 32767) s = 32767; else if (s < -32768) s = -32768;
@@ -198,29 +234,90 @@ export class AudioEngine {
     this.#writeFrame += n;
   }
 
-  // play a sample. it lands at the write head, so worst case you hear it
-  // queueDepthMs later.
   playSample(sample, gain = 1) {
     if (!sample?.pcm?.length) return;
-    // cap this, a dense stream stacks up a lot of voices and clips
     if (this.#voices.length > 24) this.#voices.shift();
     this.#voices.push({ pcm: sample.pcm, vch: sample.channels, pos: 0, gain });
   }
 
   get activeVoices() { return this.#voices.length; }
 
-  positionSamples() {
-    this.#mmtime.writeUInt32LE(TIME_SAMPLES, 0);
-    check(waveOutGetPosition(this.#hwo, this.#mmtime, MMTIME_SIZE), 'waveOutGetPosition');
-    if (this.#mmtime.readUInt32LE(0) !== TIME_SAMPLES) throw new Error('device refused TIME_SAMPLES');
+  #query(type) {
+    this.#mmtime.writeUInt32LE(type, 0);
+    const code = waveOutGetPosition(this.#hwo, this.#mmtime, MMTIME_SIZE);
+    if (code !== 0) return null;
+    if (this.#mmtime.readUInt32LE(0) !== type) return null;
     return this.#mmtime.readUInt32LE(4);
   }
 
-  positionMs() { return (this.positionSamples() / this.sampleRate) * 1000; }
+  positionSamples() {
+    if (this.#posMode === 'samples') {
+      const s = this.#query(TIME_SAMPLES);
+      if (s !== null) return s;
+      this.#posMode = 'bytes';
+    }
+    if (this.#posMode === 'bytes') {
+      const b = this.#query(TIME_BYTES);
+      if (b !== null) return Math.floor(b / this.bytesPerFrame);
+      this.#posMode = 'ms';
+    }
+    if (this.#posMode === 'ms') {
+      const ms = this.#query(TIME_MS);
+      if (ms !== null) return Math.floor((ms / 1000) * this.sampleRate);
+    }
+    return 0;
+  }
+
+  #wallMs() {
+    const t = this.#paused ? this.#pausedAt : nowMs();
+    return Math.max(0, t - this.#startedAt - this.#pauseAccum);
+  }
+
+  #armFallback(fromMs) {
+    this.#fallback = true;
+    this.#posMode = 'wall';
+    const wall = this.#paused ? this.#pausedAt : nowMs();
+    this.#startedAt = wall - fromMs - this.#pauseAccum;
+  }
+
+  positionMs() {
+    if (this.#fallback) return this.#wallMs();
+
+    const samples = this.positionSamples();
+    const hw = (samples / this.sampleRate) * 1000;
+    const wall = nowMs();
+
+    if (hw > this.#lastHwMs + 0.01) {
+      this.#lastHwMs = hw;
+      this.#lastHwWall = wall;
+      return hw;
+    }
+
+    if (this.#paused) return this.#lastHwMs;
+
+    const stalledFor = wall - (this.#lastHwWall || this.#startedAt);
+    if (stalledFor > 120) {
+      this.#armFallback(this.#lastHwMs);
+      return this.#wallMs();
+    }
+    return this.#lastHwMs;
+  }
+
   get durationMs() { return (this.#musicFrames / this.sampleRate) * 1000; }
 
-  pause()  { if (!this.#paused) { check(waveOutPause(this.#hwo), 'waveOutPause'); this.#paused = true; } }
-  resume() { if (this.#paused) { this.#paused = false; check(waveOutRestart(this.#hwo), 'waveOutRestart'); } }
+  pause() {
+    if (this.#paused) return;
+    try { check(waveOutPause(this.#hwo), 'waveOutPause'); } catch {}
+    this.#paused = true;
+    this.#pausedAt = nowMs();
+  }
+  resume() {
+    if (!this.#paused) return;
+    this.#pauseAccum += nowMs() - this.#pausedAt;
+    this.#paused = false;
+    this.#lastHwWall = nowMs();
+    try { check(waveOutRestart(this.#hwo), 'waveOutRestart'); } catch {}
+  }
   get paused() { return this.#paused; }
 
   close() {
@@ -230,6 +327,10 @@ export class AudioEngine {
       try { waveOutUnprepareHeader(this.#hwo, hdr, WAVEHDR_SIZE); } catch {}
     }
     try { waveOutClose(this.#hwo); } catch {}
+    if (this.#cb) {
+      try { koffi.unregister(this.#cb); } catch {}
+      this.#cb = null;
+    }
     this.#hwo = null;
     this.#buffers = []; this.#headers = []; this.#voices = []; this.#music = null;
   }
