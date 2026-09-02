@@ -19,6 +19,9 @@ import { Beatmap } from './core/beatmap.mjs';
 import { decodeAudio } from './audio/decode.mjs';
 import { Game } from './game.mjs';
 import { selectSong } from './select.mjs';
+import { browseOnline } from './net/browse.mjs';
+import { search as searchMirror, download as downloadSet } from './net/mirror.mjs';
+import { extractOsz } from './net/osz.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -48,6 +51,7 @@ export function saveConfig(patch) {
 function parseArgs(argv, cfg) {
   const out = {
     terms: [], diff: null, list: false, calibrate: false, help: false,
+    online: null, get: null, download: false,
     offset: cfg.audioOffsetMs ?? 0,
     sens: cfg.sensitivity ?? 1.0,
     aimMode: cfg.aimMode ?? 'absolute',
@@ -65,6 +69,9 @@ function parseArgs(argv, cfg) {
     else if (a === '--list' || a === '-l') out.list = true;
     else if (a === '--calibrate' || a === '-c') out.calibrate = true;
     else if (a === '--help' || a === '-h') out.help = true;
+    else if (a === '--search') out.online = argv[++i];
+    else if (a === '--get') out.get = argv[++i];
+    else if (a === '--download') out.download = true;
     else out.terms.push(a);
   }
   return out;
@@ -124,6 +131,7 @@ ${bold('osuterminal')}  osu!standard in your terminal
   ${bold('osuterminal')}                  interactive song select
   ${bold('osuterminal <search>')}         jump into the first matching map
   ${bold('osuterminal <search> -d 3')}    ...choosing the 3rd difficulty
+  ${bold('osuterminal --download')}       browse and download beatmaps
   ${bold('osuterminal --list')}           print your library
   ${bold('osuterminal --calibrate')}      measure your audio offset ${dim('(do this first)')}
 
@@ -133,6 +141,8 @@ ${bold('options')}
       --relative     relative aim instead of absolute ${dim('(cursor stops tracking your mouse)')}
       --sens <n>     sensitivity, relative mode only
       --songs <dir>  beatmap folder ${dim('(remembered)')}
+      --search <q>   search the mirrors and print results
+      --get <id>     download a beatmap set by id
   -l, --list         list maps and exit
   -h, --help         this
 
@@ -158,29 +168,84 @@ async function main() {
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
 
-  const maps = await loadLibrary(args.songs);
-  if (!maps.length) throw new Error(`No osu!standard maps found under:\n  ${args.songs}`);
+  if (args.online) return printSearch(args.online);
+  if (args.get) return getById(args.get, args.songs);
+  if (args.download) {
+    if (!stdout.isTTY) throw new Error('The downloader needs a terminal. Use --search and --get instead.');
+    const got = await browseOnline(args.songs);
+    console.log(got ? `\n  downloaded ${got} set${got === 1 ? '' : 's'}\n` : '\n  nothing downloaded\n');
+    return;
+  }
+
+  let maps = await loadLibrary(args.songs);
+
+  // an empty library used to be a dead end. now it just means you need maps.
+  if (!maps.length) {
+    console.log(`\n  No osu!standard maps found under:\n  ${dim(args.songs)}\n`);
+    if (!stdout.isTTY) throw new Error('Run  osuterminal --download  in a terminal to get some.');
+    console.log('  Opening the downloader...\n');
+    await new Promise((r) => setTimeout(r, 900));
+    const got = await browseOnline(args.songs);
+    if (!got) return;
+    maps = await loadLibrary(args.songs);
+    if (!maps.length) return;
+  }
 
   if (args.list) return printList(maps);
 
-  let chosen;
   const q = args.terms.join(' ').toLowerCase();
   if (q) {
     const matches = maps
       .filter((b) => `${b.artist} ${b.title} ${b.diffName} ${b.creator}`.toLowerCase().includes(q))
       .sort((a, b) => a.difficulty.ar - b.difficulty.ar);
     if (!matches.length) throw new Error(`No map matches "${q}". Try --list, or run with no arguments to browse.`);
-    chosen = matches[clampIndex((args.diff ?? 1) - 1, matches.length)];
-  } else {
-    if (!stdout.isTTY) throw new Error('Song select needs a terminal. Use --list, or pass a search term.');
-    chosen = await selectSong(maps);
-    if (!chosen) return;                       // backed out of song select
+    return play(matches[clampIndex((args.diff ?? 1) - 1, matches.length)], args, cfg);
   }
 
-  await play(chosen, args, cfg);
+  if (!stdout.isTTY) throw new Error('Song select needs a terminal. Use --list, or pass a search term.');
+
+  // loop so tab can bounce out to the downloader and come back with a bigger library
+  for (;;) {
+    const action = await selectSong(maps);
+    if (!action) return;
+    if (action.type === 'browse') {
+      const got = await browseOnline(args.songs);
+      if (got) maps = await loadLibrary(args.songs);
+      continue;
+    }
+    return play(action.map, args, cfg);
+  }
 }
 
 const clampIndex = (i, n) => Math.max(0, Math.min(n - 1, i));
+
+const secs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+async function printSearch(query) {
+  process.stdout.write(`  searching for ${bold(query)}... `);
+  const { mirror, results } = await searchMirror(query, { limit: 30 });
+  console.log(dim(`${results.length} sets from ${mirror}\n`));
+  for (const r of results) {
+    console.log(`  ${bold(String(r.id).padStart(7))}  ${r.artist} - ${r.title}`);
+    const stars = r.diffs.map((d) => d.stars.toFixed(1)).join(' ');
+    console.log(dim(`           by ${r.creator}  ${r.bpm}bpm  ${r.status}  ${r.diffs.length} diffs [${stars}]`));
+  }
+  console.log(`\n  grab one with  ${bold('osuterminal --get <id>')}\n`);
+}
+
+async function getById(id, songsDir) {
+  if (!/^\d+$/.test(String(id))) throw new Error(`"${id}" is not a beatmap set id.`);
+  process.stdout.write(`  downloading ${bold(id)}... `);
+  let last = 0;
+  const { mirror, buffer } = await downloadSet(id, (got, total) => {
+    if (!total || Date.now() - last < 200) return;
+    last = Date.now();
+    process.stdout.write(`\r  downloading ${bold(id)}... ${Math.floor((got / total) * 100)}%   `);
+  });
+  console.log(`\r  downloading ${bold(id)}... ${(buffer.length / 1048576).toFixed(1)} MiB from ${mirror}   `);
+  const r = await extractOsz(buffer, songsDir, { setId: id });
+  console.log(`  saved ${r.osuCount} difficulties to ${dim(r.folder)}\n`);
+}
 
 async function play(chosen, args, cfg) {
   const d = chosen.difficulty;
