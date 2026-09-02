@@ -186,7 +186,8 @@ function printList(maps) {
 
 function printHelp() {
   console.log(`
-${bold('osuterminal')}  osu!standard in your terminal
+${bold('osuterminal')}  unofficial osu!standard in your terminal
+  ${dim('not affiliated with ppy Pty Ltd or osu!')}
 
   ${bold('osuterminal')}                  interactive song select
   ${bold('osuterminal usesongs')}         include your osu! Songs folder ${dim('(remembered)')}
