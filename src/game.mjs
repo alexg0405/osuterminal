@@ -2,10 +2,16 @@
 // spinners aren't done, they need rotation tracking which is a separate thing.
 
 import { Framebuffer } from './render/framebuffer.mjs';
+import { Playfield } from './render/playfield.mjs';
 import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
 import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
+import { applyStacking } from './core/stack.mjs';
+import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
+import { rankFromCounts } from './grade.mjs';
+import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
+import { loadBackground, coverScale, BG_DIM } from './render/background.mjs';
 import { stdout } from 'node:process';
 
 const CSI = '\x1b[';
@@ -27,27 +33,7 @@ const MIN_PREP_MS = 2200;
 // osu lets the cursor drift to 2.4x the circle radius while tracking a slider
 const FOLLOW_SCALE = 2.4;
 
-// maps osu pixel space (512x384, 4:3) onto the framebuffer with letterboxing
-export class Playfield {
-  constructor(fbW, fbH, margin = 0.94) {
-    this.scale = Math.min(fbW / 512, fbH / 384) * margin;
-    this.w = 512 * this.scale;
-    this.h = 384 * this.scale;
-    this.ox = (fbW - this.w) / 2;
-    this.oy = (fbH - this.h) / 2;
-  }
-  sx(x) { return this.ox + x * this.scale; }
-  sy(y) { return this.oy + y * this.scale; }
-  len(l) { return l * this.scale; }
-
-  // framebuffer pixel to osu pixel, clamped to the playfield
-  toOsu(fx, fy) {
-    return {
-      x: Math.max(0, Math.min(512, (fx - this.ox) / this.scale)),
-      y: Math.max(0, Math.min(384, (fy - this.oy) / this.scale)),
-    };
-  }
-}
+export { Playfield } from './render/playfield.mjs';
 
 // how far along a slider you are at time t, 0..1, accounting for reverses
 export function sliderProgress(o, t) {
@@ -62,13 +48,24 @@ export function sliderProgress(o, t) {
 }
 
 export class Game {
-  constructor(beatmap, { audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'] } = {}) {
+  #bgSrc = null;
+  #bgFit = null;
+
+  constructor(beatmap, {
+    audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'],
+    masterVolume = 0.8, musicVolume = 1, effectVolume = 1, onVolume = null,
+  } = {}) {
     this.map = beatmap;
     this.diff = beatmap.difficulty;
     this.audioOffsetMs = audioOffsetMs;
     this.sensitivity = sensitivity;
     this.aimMode = aimMode;
     this.keys = keys;
+    this.masterVolume = clampVolume(masterVolume, 0.8);
+    this.musicVolume = clampVolume(musicVolume, 1);
+    this.effectVolume = clampVolume(effectVolume, 1);
+    this.onVolume = onVolume;
+    this.volumeToast = null;
 
     const src = beatmap.hitObjects.filter((o) => !o.isSpinner);
     this.objects = src.map((o, i) => {
@@ -102,6 +99,16 @@ export class Game {
       this.objects[i].combo = combo;
       this.objects[i].comboColour = colour;
     }
+
+    // stacked notes share a position in the .osu; shift them up-left so the pile
+    // is visible instead of one disc covering the rest. rings + remaining-count
+    // do the rest of the work at draw time.
+    const stackLeniency = Number(beatmap.general.StackLeniency);
+    applyStacking(this.objects, {
+      preempt: this.diff.preempt,
+      stackLeniency: Number.isFinite(stackLeniency) ? stackLeniency : 0.7,
+      radius: this.diff.radius,
+    });
 
     // lead in. silence gets stuck on the front of the audio so the first object isn't
     // on you the second playback starts. the clock is still the audio clock, song time
@@ -196,6 +203,17 @@ export class Game {
     this.#advance();
   }
 
+  #stackRemaining(o) {
+    const g = o.stackGroup;
+    if (g == null) return 1;
+    let n = 0;
+    for (let i = this.nextIndex; i < this.objects.length; i++) {
+      const x = this.objects[i];
+      if (x.stackGroup === g && !x.headResult) n++;
+    }
+    return n;
+  }
+
   #finish(o, kind) {
     o.result = kind;
     o.resultAt = this.time;
@@ -219,6 +237,7 @@ export class Game {
   // skipping this is fine, you just get no hitsounds.
   async prepareAudio(sampleRate) {
     const bank = await HitsoundBank.forBeatmap(this.map, sampleRate);
+    const bgP = this.#loadBackground();
     await bank.prime(this.map);
 
     const src = this.map.hitObjects.filter((h) => !h.isSpinner);
@@ -230,7 +249,40 @@ export class Game {
     }
     [this.tickSample] = await bank.resolve(this.map.timingPoints[0]?.sampleSet ?? 1, 0, 0);
     this.hitsoundStats = { loaded: bank.loaded, synthesized: bank.synthesized };
+    await bgP;
     return this;
+  }
+
+  async #loadBackground() {
+    this.#bgSrc = await loadBackground(this.map.backgroundPath);
+    this.#bgFit = null;
+  }
+
+  #applyGains(player = this.audio) {
+    if (!player) return;
+    const g = mixGains(this.masterVolume, this.musicVolume, this.effectVolume);
+    player.musicGain = g.music;
+    player.effectGain = g.effect;
+  }
+
+  #handleVolumeKey(ch) {
+    let which = null, dir = 0;
+    if (ch === '-' || ch === '_') { which = 'masterVolume'; dir = -1; }
+    else if (ch === '=' || ch === '+') { which = 'masterVolume'; dir = 1; }
+    else if (ch === '[') { which = 'musicVolume'; dir = -1; }
+    else if (ch === ']') { which = 'musicVolume'; dir = 1; }
+    else if (ch === ',') { which = 'effectVolume'; dir = -1; }
+    else if (ch === '.') { which = 'effectVolume'; dir = 1; }
+    else return false;
+    this[which] = stepVolume(this[which], dir);
+    this.#applyGains();
+    this.volumeToast = { which, until: nowMs() + 1400 };
+    this.onVolume?.({
+      masterVolume: this.masterVolume,
+      musicVolume: this.musicVolume,
+      effectVolume: this.effectVolume,
+    });
+    return true;
   }
 
   #advance() {
@@ -307,7 +359,7 @@ export class Game {
   // ------------------------------------------------------------- loop
   async run({ pcm, sampleRate, channels }) {
     let fb = new Framebuffer(stdout.columns, stdout.rows);
-    let pf = new Playfield(fb.width, fb.height);
+    let pf = new Playfield(fb.width, fb.height, { radius: this.diff.radius });
     const input = new Input({ mode: this.aimMode, sensitivity: this.sensitivity, keys: this.keys });
     const player = new AudioEngine({ sampleRate, channels });
     this.audio = player;
@@ -330,6 +382,7 @@ export class Game {
 
     input.on('key', ({ ch }) => {
       if (ch === '\x03') { quitApp = true; quit = true; return; }
+      if (this.#handleVolumeKey(ch)) return;
       // escape opens the pause screen instead of dumping you out mid map
       if (ch === '\x1b' || ch === ' ') { setPaused(!paused); return; }
       if (paused) {
@@ -340,7 +393,9 @@ export class Game {
 
     stdout.write(`${CSI}?1049h${CSI}?25l`);
     await input.enable();
-    player.open().setMusic(padded).start();
+    player.open().setMusic(padded);
+    this.#applyGains(player);
+    player.start();
 
     try {
       while (!quit) {
@@ -349,7 +404,7 @@ export class Game {
         // every frame costs nothing
         if (fb.cols !== stdout.columns || fb.rows !== stdout.rows) {
           fb = new Framebuffer(stdout.columns, stdout.rows);
-          pf = new Playfield(fb.width, fb.height);
+          pf = new Playfield(fb.width, fb.height, { radius: this.diff.radius });
           stdout.write(`${CSI}2J`);
         }
 
@@ -385,7 +440,7 @@ export class Game {
   // ------------------------------------------------------------- rendering
   // public so the render benchmark can call it without a terminal
   draw(fb, pf, input, paused, cursor) {
-    fb.clear(8, 8, 14);
+    if (!this.#blitBackground(fb)) fb.clear(8, 8, 14);
 
     const pre = this.diff.preempt, fade = this.diff.fadeIn;
     const rad = pf.len(this.diff.radius);
@@ -402,6 +457,25 @@ export class Game {
 
     this.#drawHud(fb, paused);
     this.#drawCursor(fb, pf, input, cursor);
+    this.#drawVolumeToast(fb, paused);
+  }
+
+  #blitBackground(fb) {
+    if (!this.#bgSrc) return false;
+    if (!this.#bgFit || this.#bgFit.w !== fb.width || this.#bgFit.h !== fb.height) {
+      this.#bgFit = {
+        w: fb.width, h: fb.height,
+        px: coverScale(this.#bgSrc.data, this.#bgSrc.width, this.#bgSrc.height, fb.width, fb.height, BG_DIM),
+      };
+    }
+    return fb.blit(this.#bgFit.px);
+  }
+
+  #drawVolumeToast(fb, paused) {
+    if (paused || !this.volumeToast || nowMs() > this.volumeToast.until) return;
+    const label = { masterVolume: 'volume', musicVolume: 'music', effectVolume: 'hitsounds' }[this.volumeToast.which];
+    const text = `  ${label} ${volumePercent(this[this.volumeToast.which])}  `;
+    fb.textCentered(Math.min(fb.rows - 3, Math.floor(fb.rows / 2) + 5), text, 0xffd257, 0x12121a);
   }
 
   #drawObject(fb, pf, o, rad, pre, fade) {
@@ -425,10 +499,14 @@ export class Game {
 
     // keep drawing the head circle until the head is judged
     if (!o.headResult) {
-      fb.fillCircle(cx, cy, rad, cr * 0.32, cg * 0.32, cb * 0.32, alpha * 0.85);
-      fb.strokeCircle(cx, cy, rad, 1.8, cr, cg, cb, alpha);
+      const stacked = (o.stackSize ?? 1) >= 2;
+      const remaining = stacked && o.index === this.nextIndex ? this.#stackRemaining(o) : 0;
+      const next = this.objects[this.nextIndex];
+      const combo = remaining >= 2 || !comboVisible(o, next, this.diff.radius) ? null : o.combo;
+      drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
+        stacked, combo, count: remaining >= 2 ? remaining : null,
+      });
       if (dt > 0) fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, alpha * 0.75);
-      if (rad > 3) fb.drawCombo(cx, cy, o.combo, rad, 255, 255, 255, alpha);
     }
   }
 
@@ -530,11 +608,14 @@ export class Game {
   }
 
   #drawPauseMenu(fb) {
-    const row = Math.floor(fb.rows / 2) - 1;
+    const row = Math.max(1, Math.floor(fb.rows / 2) - 5);
     fb.textCentered(row, '  paused  ', 0x000000, 0xffd257);
-    fb.textCentered(row + 2, 'esc  resume', 0xc8d0dc);
-    fb.textCentered(row + 3, 'r    retry', 0x8a94a8);
-    fb.textCentered(row + 4, 'q    menu', 0x8a94a8);
+    fb.textCentered(row + 2, `-/=  volume    ${volumePercent(this.masterVolume)}`, 0xc8d0dc);
+    fb.textCentered(row + 3, `[/]  music     ${volumePercent(this.musicVolume)}`, 0x8a94a8);
+    fb.textCentered(row + 4, `,/.  hitsounds ${volumePercent(this.effectVolume)}`, 0x8a94a8);
+    fb.textCentered(row + 6, 'esc  resume', 0xc8d0dc);
+    fb.textCentered(row + 7, 'r    retry', 0x8a94a8);
+    fb.textCentered(row + 8, 'q    menu', 0x8a94a8);
   }
 
   // shown while song time is negative, so during the lead in
@@ -558,8 +639,7 @@ export class Game {
       score: this.score, maxCombo: this.maxCombo, accuracy: this.accuracy,
       counts: { ...c },
       meanError: this.errors.length ? this.errors.reduce((a, b) => a + b, 0) / this.errors.length : 0,
-      rank: this.accuracy >= 1 ? 'SS' : this.accuracy >= 0.95 ? 'S' : this.accuracy >= 0.9 ? 'A'
-          : this.accuracy >= 0.8 ? 'B' : this.accuracy >= 0.7 ? 'C' : 'D',
+      rank: rankFromCounts(c),
     };
   }
 }

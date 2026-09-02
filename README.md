@@ -37,19 +37,27 @@ osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
 osuterminal --calibrate           # measure audio offset
 osuterminal --keys df             # rebind tap keys
+osuterminal --volume 70           # master volume 70% (remembered)
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter (gold S, green A, and so on). r retries from there too; enter goes back to song select.
+
+`-` / `=` master volume, `[` / `]` music, `,` / `.` hitsounds. they work while playing and while paused, and they save to `~/.osuterminal.json`. `--volume 70` sets master to 70% (or `--volume 0.4` for 40%).
+
+Maps that ship a jpg/png get that picture behind the playfield, cover-cropped to the terminal and dimmed so circles still read. it is nearest-neighbour on purpose, so it looks pixelated. video and storyboards are still stripped; maps without an image stay on the dark playfield.
+
+`\` from song select opens the downloader (the search in that screenshot). `/` filters the list you already have. in the downloader, `\` toggles the search field so w/s can move the results without typing into the query.
 
 Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else needed.
 
 ## downloading maps
 
 You don't need osu! installed. Downloads go to `~/osuterminal/Songs` (override with
-`--songs <dir>`). `osuterminal --download` opens a browser: type a query, enter to
-search, arrows to move around, enter again to download. Tab gets you there from song
-select too, and if your Songs folder is empty it just opens automatically.
+`--songs <dir>`). `osuterminal --download` opens a browser, or press `\` from song
+select: type a query, enter to search, `\` to leave the field, w/s to move, enter
+again to download. Tab still gets you there too, and if your Songs folder is empty
+it just opens automatically.
 
 To play maps you already have in osu!, run `osuterminal usesongs`. That only
 reads `%LOCALAPPDATA%\osu!\Songs` (or the equivalent on other OSes) — it does not
@@ -60,8 +68,8 @@ if that folder already exists, you get asked once.
 Maps come from osu.direct, nerinyan or sayobot, whichever answers first. No account or
 api key needed. A mirror that blocks us gets dropped for the rest of the session so it
 does not get hammered.
-Video and storyboard files get stripped since nothing here can show them and they are
-usually most of the download.
+Video and storyboard files get stripped since nothing here can play them and they are
+usually most of the download. jpg/png backgrounds are kept and drawn pixelated in game.
 
 Search comes from osu metadata, so it lists maps the mirrors do not actually host. The
 browser checks whichever set you highlight in the background and marks it: + means you
@@ -90,11 +98,13 @@ those samples back.
 ## what works
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
-note lock. Hitsounds load from the beatmap folder and fall back to synthesized ones
-when a map doesn't ship them.
+note lock, stacking. Hit circles are rings rather than solid discs, so streams and
+stacks stay countable; a pile also spreads up-left and the next hit shows how many
+are left. Hitsounds load from the beatmap folder and fall back to synthesized
+ones when a map doesn't ship them. Beatmap backgrounds (jpg/png) render pixelated and
+dimmed at terminal resolution. Volume is three sliders: master, music, hitsounds.
 
-Not done yet: spinners, stacking, HP drain, breaks, mods. Stacking matters most of
-those since stacked patterns currently draw on top of each other.
+Not done yet: spinners, HP drain, breaks, mods.
 
 ## notes on how it works
 
@@ -153,7 +163,11 @@ src/audio/hitsounds.mjs    sample loading and synthesis
 src/audio/decode.mjs       mp3/wav to PCM
 src/audio/waveout.mjs      simple player, only calibration uses it
 src/render/framebuffer.mjs half block framebuffer
+src/render/playfield.mjs   512x384 onto the terminal, HUD insets
+src/render/hitcircle.mjs   rings so overlapping notes stay countable
+src/render/background.mjs  beatmap jpg/png, cover-crop, dim
 src/input/input.mjs        the input split described above
+src/volume.mjs             master / music / hitsound sliders
 src/game.mjs               judgement, scoring, drawing
 src/select.mjs             song select
 src/net/mirror.mjs         beatmap mirror search and download
@@ -173,6 +187,13 @@ node tools/origin-test.mjs   # cursor origin solver
 node tools/engine-spike.mjs  # audio clock
 node tools/render-bench.mjs  # frame timing
 node tools/select-test.mjs   # song select keys
+node tools/result-test.mjs   # ranking grades + results screen
+node tools/stack-test.mjs    # stacked circle offsets
+node tools/hitcircle-test.mjs # overlapping rings stay countable
+node tools/browse-test.mjs   # download search keys
+node tools/playfield-test.mjs # notes stay on screen vertically
+node tools/volume-test.mjs   # volume clamp / step / mix
+node tools/background-test.mjs # beatmap bg parse + pixelate
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo
 node tools/probe.mjs         # what your terminal supports
@@ -184,8 +205,8 @@ npm scripts exist too but PowerShell blocks npm's .ps1 shim by default, so eithe
 
 ## requirements
 
-Windows, node 20+, terminal at least 60x20. koffi, mpg123-decoder and fflate are all
-prebuilt or pure js so you don't need a compiler.
+Windows, node 20+, terminal at least 60x20. koffi, mpg123-decoder, fflate, jpeg-js and
+pngjs are all prebuilt or pure js so you don't need a compiler.
 
 Input is Windows only right now. There's a VT fallback that works anywhere but you lose
 pixel accurate aim.

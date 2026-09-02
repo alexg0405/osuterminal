@@ -3,9 +3,9 @@
 // sets on the left, difficulties of the highlighted set on the right.
 //
 // two modes. browsing is the default: w/s or up/down move between songs, a/d or
-// left/right pick a difficulty. backslash (or slash) opens a filter; backslash
-// again closes it so w/s move the list, without clearing the text. tab opens
-// the online downloader. the list scrolls — header shows which slice you are on.
+// left/right pick a difficulty. slash opens a filter on this list; slash again
+// closes it so w/s move, without clearing the text. backslash (or tab) opens
+// the online downloader — that is the search for getting more maps.
 //
 // this uses plain ANSI instead of the framebuffer because it's all text, and text
 // needs real characters rather than half blocks.
@@ -61,7 +61,7 @@ export function selectSong(maps) {
     let filtered = sets;
     let setIdx = 0, diffIdx = 0, scroll = 0;
     let done = false;
-    let searching = false;    // backslash toggles the filter field; the text stays
+    let searching = false;    // slash toggles the filter field; the text stays
 
     const refilter = () => {
       const q = query.toLowerCase();
@@ -95,9 +95,9 @@ export function selectSong(maps) {
       out.push(`${BRIGHT}  osuterminal${RESET}${DIM}   ${filtered.length} set${filtered.length === 1 ? '' : 's'}`);
       if (filtered.length) out.push(`${DIM}   ${above}${from}-${to}${RESET}${more}`);
       out.push('\r\n');
-      out.push(searching ? `   ${ACCENT}\\${query}_${RESET}`
-        : query ? `   ${ACCENT}\\${query}${RESET}${DIM}  \\ to edit   backspace clears${RESET}`
-        : `   ${DIM}\\ to search this list   tab to download more${RESET}`);
+      out.push(searching ? `   ${ACCENT}/${query}_${RESET}`
+        : query ? `   ${ACCENT}/${query}${RESET}${DIM}  / to edit   backspace clears${RESET}`
+        : `   ${DIM}\\ to download more   / to filter this list${RESET}`);
       out.push('\r\n');
 
       const cur = filtered[setIdx];
@@ -136,8 +136,8 @@ export function selectSong(maps) {
         out.push(`  ${DIM}no matches${RESET}\r\n`);
       }
       out.push(searching
-        ? `  ${DIM}typing a filter   \\ done   then w/s move   esc also stops${RESET}`
-        : `  ${DIM}w/s song   enter play   \\ search   tab download   esc quit${RESET}`);
+        ? `  ${DIM}typing a filter   / done   then w/s move   esc also stops${RESET}`
+        : `  ${DIM}w/s song   enter play   \\ download   / filter   esc quit${RESET}`);
       stdout.write(out.join(''));
     };
 
@@ -178,8 +178,9 @@ export function selectSong(maps) {
       // ---- typing a search ----
       // held separately from browsing so w/s can be movement keys rather than text
       if (searching) {
-        // backslash (and slash) leave the field. the filter stays so w/s move again.
-        if (s === '\\' || s === '/') { searching = false; return draw(); }
+        // slash leaves the field. the filter stays so w/s move again.
+        if (s === '/') { searching = false; return draw(); }
+        if (s === '\\') { searching = false; return draw(); }
         if (s === '\x1b') { searching = false; return draw(); }
         if (s === '\r' || s === '\n') { searching = false; return draw(); }
         if (s === '\x7f' || s === '\b') { query = query.slice(0, -1); refilter(); return draw(); }
@@ -189,8 +190,8 @@ export function selectSong(maps) {
 
       // ---- browsing ----
       if (s === '\x1b') return finish(null);
-      if (s === '\\' || s === '/') { searching = true; return draw(); }
-      if (s === '\t') return finish({ type: 'browse' });
+      if (s === '/') { searching = true; return draw(); }
+      if (s === '\\' || s === '\t') return finish({ type: 'browse' });
       if (s === '\r' || s === '\n') {
         const cur = filtered[setIdx];
         return cur ? finish({ type: 'play', map: cur.diffs[diffIdx] }) : undefined;

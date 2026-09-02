@@ -3,7 +3,8 @@
 // the renderer that gets more expensive the busier the map is.
 import { Beatmap } from '../src/core/beatmap.mjs';
 import { Framebuffer } from '../src/render/framebuffer.mjs';
-import { Game, Playfield, sliderProgress } from '../src/game.mjs';
+import { Game, sliderProgress } from '../src/game.mjs';
+import { Playfield } from '../src/render/playfield.mjs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -29,8 +30,8 @@ console.log(`     ${worst.hitObjects.length} objects, AR${worst.difficulty.ar} C
 
 for (const [cols, rows] of sizes) {
   const fb = new Framebuffer(cols, rows);
-  const pf = new Playfield(fb.width, fb.height);
   const g = new Game(worst);
+  const pf = new Playfield(fb.width, fb.height, { radius: g.diff.radius });
   const input = { x: 256, y: 192, cursor: { x: 256, y: 192 }, anyDown: false };
 
   const last = g.objects[g.objects.length - 1].endTime;
