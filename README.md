@@ -32,8 +32,12 @@ enter to search, arrows to move around, enter again to download. Tab gets you th
 from song select too, and if your Songs folder is empty it just opens automatically.
 
 Maps come from catboy.best with nerinyan as a backup. No account or api key needed.
-Video and storyboard files get stripped since nothing here can show them and they're
+Video and storyboard files get stripped since nothing here can show them and they are
 usually most of the download.
+
+Search comes from osu metadata, so it lists maps the mirrors do not actually host. The
+browser checks whichever set you highlight in the background and marks it: + means you
+already have it, x means no mirror has it, ? means still checking.
 
 There's a non-interactive version too:
 
@@ -138,6 +142,7 @@ node tools/origin-test.mjs   # cursor origin solver
 node tools/engine-spike.mjs  # audio clock
 node tools/render-bench.mjs  # frame timing
 node tools/probe.mjs         # what your terminal supports
+node tools/mirror-test.mjs   # mirrors, needs internet
 ```
 
 npm scripts exist too but PowerShell blocks npm's .ps1 shim by default, so either use
