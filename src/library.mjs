@@ -1,7 +1,7 @@
 // where maps live, and how the library is assembled.
 //
-// downloads go to ~/osuterminal/Songs. if they already have osu! installed we
-// also *read* that Songs folder so those maps show up, but we never mkdir it.
+// downloads go to ~/osuterminal/Songs. the osu! Songs folder is only scanned
+// when they opt in — we never create it, and we never copy maps out of it.
 
 import { readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -39,7 +39,7 @@ export function osuSongsPresent(dir = osuSongsDir()) {
   }
 }
 
-export function libraryRoots({ bundledDir, songsDir, importOsu = true } = {}) {
+export function libraryRoots({ bundledDir, songsDir, importOsu = false } = {}) {
   const roots = [];
   const seen = new Set();
   const add = (dir) => {

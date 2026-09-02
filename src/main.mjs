@@ -15,8 +15,9 @@ import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import readline from 'node:readline/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { stdout } from 'node:process';
+import { stdout, stdin } from 'node:process';
 import { Beatmap } from './core/beatmap.mjs';
 import { decodeAudio } from './audio/decode.mjs';
 import { Game } from './game.mjs';
@@ -59,7 +60,7 @@ function parseArgs(argv, cfg) {
     keys: cfg.keys ?? ['z', 'x'],
     aimMode: cfg.aimMode ?? 'absolute',
     songs: cfg.songsDir ?? defaultSongsDir(),
-    importOsu: cfg.importOsu !== false,
+    importOsu: cfg.importOsu === true,
     importOsuFlag: null,          // 'on' | 'off' when they passed a flag this run
     offsetFromConfig: cfg.audioOffsetMs !== undefined,
   };
@@ -145,6 +146,19 @@ async function loadLibrary(songsDir, { importOsu } = {}) {
   return mergeMaps(...lists);
 }
 
+async function askImportOsu(osuDir) {
+  if (!stdout.isTTY || !stdin.isTTY) return null;
+  console.log(`\n  Found an osu! Songs folder:\n  ${dim(osuDir)}\n`);
+  console.log('  Include those maps in osuterminal? They stay where they are; nothing is copied.\n');
+  const rl = readline.createInterface({ input: stdin, output: stdout });
+  try {
+    const answer = await rl.question('  Import osu! library? [y/N] ');
+    return /^\s*y/i.test(answer);
+  } finally {
+    rl.close();
+  }
+}
+
 function printList(maps) {
   const bySet = new Map();
   for (const b of maps) {
@@ -182,8 +196,8 @@ ${bold('options')}
       --sens <n>     sensitivity, relative mode only
       --offset <ms>  audio offset override ${dim('(default -15, you should not need this)')}
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
-      --import-osu   include maps from your osu! Songs folder ${dim('(on by default if that folder exists)')}
-      --no-import-osu  don't scan the osu! Songs folder
+      --import-osu   include maps from your osu! Songs folder ${dim('(remembered, nothing is copied)')}
+      --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
       --get <id>     download a beatmap set by id
   -l, --list         list maps and exit
@@ -237,12 +251,23 @@ async function main() {
     return;
   }
 
-  const importOsu = args.importOsu && osuSongsPresent();
-  if (args.importOsuFlag === 'on' && !osuSongsPresent()) {
+  // first launch: if they already have osu! maps, ask once. never on by default.
+  if (args.importOsuFlag == null && cfg.importOsu === undefined && osuSongsPresent()) {
+    const choice = await askImportOsu(osuSongsDir());
+    if (choice != null) {
+      args.importOsu = choice;
+      saveConfig({ importOsu: choice });
+      console.log(choice
+        ? dim(`\n  importing from ${osuSongsDir()}  (--no-import-osu to undo)\n`)
+        : dim(`\n  skipped.  osuterminal --import-osu  later if you change your mind\n`));
+    }
+  } else if (args.importOsuFlag === 'on' && osuSongsPresent()) {
+    console.log(dim(`\n  importing from ${osuSongsDir()}\n`));
+  } else if (args.importOsu && !osuSongsPresent()) {
     console.log(`\n  osu! Songs folder not found:\n  ${dim(osuSongsDir())}\n`);
   }
 
-  let maps = await loadLibrary(args.songs, { importOsu });
+  let maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
   if (args.list) return printList(maps);
 
   // an empty library used to be a dead end. now it just means you need maps.
@@ -257,7 +282,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, 900));
     const got = await browseOnline(args.songs);
     if (!got) return;
-    maps = await loadLibrary(args.songs, { importOsu });
+    maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
     if (!maps.length) return;
   }
 
@@ -284,7 +309,7 @@ async function main() {
     if (!action) return;
     if (action.type === 'browse') {
       const got = await browseOnline(args.songs);
-      if (got) maps = await loadLibrary(args.songs, { importOsu });
+      if (got) maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
       continue;
     }
     const result = await play(action.map, args, cfg);

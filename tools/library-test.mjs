@@ -1,5 +1,4 @@
-// checks that the library stays in ~/osuterminal/Songs, that an existing osu!
-// Songs folder can be scanned, and that we never treat osu! as the default dest.
+// checks that the library stays in ~/osuterminal/Songs unless they opt into osu!.
 
 import path from 'node:path';
 import os from 'node:os';
@@ -32,7 +31,7 @@ const songs = path.join(os.tmpdir(), 'osuterminal-songs');
 const off = libraryRoots({ bundledDir: bundled, songsDir: songs, importOsu: false });
 check(off.length === 2, 'without import, bundled + songs dir only');
 check(!off.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
-  'osu! Songs is not scanned when they opt out');
+  'osu! Songs is not scanned unless they opt in');
 
 const on = libraryRoots({ bundledDir: bundled, songsDir: songs, importOsu: true });
 check(on.length === 3, 'import adds a third root');
@@ -40,8 +39,8 @@ check(on.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
   'import scans osu! Songs');
 
 const implied = libraryRoots({ bundledDir: bundled, songsDir: songs });
-check(implied.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
-  'osu! Songs is scanned by default');
+check(!implied.some((d) => path.resolve(d) === path.resolve(osuSongsDir())),
+  'osu! Songs is not scanned unless they opt in');
 
 const dup = libraryRoots({ bundledDir: bundled, songsDir: osuSongsDir(), importOsu: true });
 check(dup.filter((d) => path.resolve(d) === path.resolve(osuSongsDir())).length === 1,

@@ -4,8 +4,8 @@ osu!standard in a terminal, with mouse aim and hit circles.
 
 Maps you download land in `~/osuterminal/Songs`. Two easy beginner maps (Warmup and
 First Steps) ship with the package so you can play immediately. If you already have
-osu! installed, those maps are listed too — nothing is copied, and the osu! folder
-is never created.
+osu! installed, `osuterminal --import-osu` will also list those maps in place — nothing
+is copied, and it is off until you choose it.
 
 ## install
 
@@ -35,7 +35,7 @@ osuterminal                       # song select
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
-osuterminal --no-import-osu       # don't scan an existing osu! Songs folder
+osuterminal --import-osu          # include your existing osu! Songs folder
 osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
@@ -51,10 +51,11 @@ You don't need osu! installed. Downloads go to `~/osuterminal/Songs` (override w
 search, arrows to move around, enter again to download. Tab gets you there from song
 select too, and if your Songs folder is empty it just opens automatically.
 
-If osu! is already installed, its Songs folder is read in place (Windows:
-`%LOCALAPPDATA%\osu!\Songs`). Nothing is copied, and that path is never created.
-`--no-import-osu` turns the scan off; `--import-osu` turns it back on. Both are
-remembered in `~/.osuterminal.json`.
+To play maps you already have in osu!, run `osuterminal --import-osu`. That only
+reads `%LOCALAPPDATA%\osu!\Songs` (or the equivalent on other OSes) — it does not
+copy tens of gigabytes, and it does not create an osu! folder. `--no-import-osu`
+turns it back off. Both are remembered in `~/.osuterminal.json`. On first launch,
+if that folder already exists, you get asked once.
 
 Maps come from osu.direct, nerinyan or sayobot, whichever answers first. No account or
 api key needed. A mirror that blocks us gets dropped for the rest of the session so it
@@ -161,7 +162,7 @@ src/select.mjs             song select
 src/net/mirror.mjs         beatmap mirror search and download
 src/net/osz.mjs            .osz extraction
 src/net/browse.mjs         download browser
-src/library.mjs            songs folder paths (~/osuterminal/Songs, osu! import)
+src/library.mjs            songs folder + optional osu! import
 src/main.mjs               cli
 tools/                     tests and benchmarks
 ```
