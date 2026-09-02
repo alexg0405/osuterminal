@@ -1,6 +1,6 @@
 {
   "name": "osuterminal",
-  "version": "0.0.11",
+  "version": "1.0.0",
   "type": "module",
   "description": "unofficial osu!standard client for the terminal",
   "license": "MIT",
