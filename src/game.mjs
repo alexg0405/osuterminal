@@ -62,12 +62,13 @@ export function sliderProgress(o, t) {
 }
 
 export class Game {
-  constructor(beatmap, { audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute' } = {}) {
+  constructor(beatmap, { audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'] } = {}) {
     this.map = beatmap;
     this.diff = beatmap.difficulty;
     this.audioOffsetMs = audioOffsetMs;
     this.sensitivity = sensitivity;
     this.aimMode = aimMode;
+    this.keys = keys;
 
     const src = beatmap.hitObjects.filter((o) => !o.isSpinner);
     this.objects = src.map((o, i) => {
@@ -307,7 +308,7 @@ export class Game {
   async run({ pcm, sampleRate, channels }) {
     let fb = new Framebuffer(stdout.columns, stdout.rows);
     let pf = new Playfield(fb.width, fb.height);
-    const input = new Input({ mode: this.aimMode, sensitivity: this.sensitivity });
+    const input = new Input({ mode: this.aimMode, sensitivity: this.sensitivity, keys: this.keys });
     const player = new AudioEngine({ sampleRate, channels });
     this.audio = player;
 
@@ -318,14 +319,23 @@ export class Game {
 
     this.time = 0;
     this.frameWall = nowMs();
-    let quit = false, paused = false;
+    let quit = false, paused = false, restart = false;
 
     input.on('hit', ({ at }) => { if (!paused) this.handleHit(at); });
+    const setPaused = (v) => {
+      if (v === paused) return;
+      paused = v;
+      paused ? player.pause() : player.resume();
+    };
+
     input.on('key', ({ ch }) => {
-      if (ch === '\x1b' || ch === '\x03' || ch === 'q') quit = true;
-      else if (ch === ' ') { paused = !paused; paused ? player.pause() : player.resume(); }
-      else if (ch === '+' || ch === '=') this.audioOffsetMs += 5;
-      else if (ch === '-' || ch === '_') this.audioOffsetMs -= 5;
+      if (ch === '\x03') { quit = true; return; }
+      // escape opens the pause screen instead of dumping you out mid map
+      if (ch === '\x1b' || ch === ' ') { setPaused(!paused); return; }
+      if (paused) {
+        if (ch === 'q') quit = true;
+        else if (ch === 'r') { restart = true; quit = true; }
+      }
     });
 
     stdout.write(`${CSI}?1049h${CSI}?25l`);
@@ -369,18 +379,13 @@ export class Game {
       stdout.write(`${CSI}?25h${CSI}?1049l`);
     }
 
-    return this.#summary();
+    return { ...this.#summary(), restart };
   }
 
   // ------------------------------------------------------------- rendering
   // public so the render benchmark can call it without a terminal
   draw(fb, pf, input, paused, cursor) {
     fb.clear(8, 8, 14);
-
-    const bx = Math.round(pf.ox), by = Math.round(pf.oy);
-    const bw = Math.round(pf.w), bh = Math.round(pf.h);
-    for (let x = bx; x <= bx + bw; x++) { fb.set(x, by, 40, 40, 60); fb.set(x, by + bh, 40, 40, 60); }
-    for (let y = by; y <= by + bh; y++) { fb.set(bx, y, 40, 40, 60); fb.set(bx + bw, y, 40, 40, 60); }
 
     const pre = this.diff.preempt, fade = this.diff.fadeIn;
     const rad = pf.len(this.diff.radius);
@@ -495,7 +500,7 @@ export class Game {
     fb.text(1, fb.rows - 1, `${this.combo}x`, this.combo > 0 ? 0xffd257 : 0x555555);
     const stats = `300:${c.GREAT}  100:${c.OK}  50:${c.MEH}  X:${c.MISS}`;
     fb.text(Math.floor((fb.cols - stats.length) / 2), fb.rows - 1, stats, 0x8a94a8);
-    const help = `off:${this.audioOffsetMs >= 0 ? '+' : ''}${this.audioOffsetMs}ms  [±] [space] [q]`;
+    const help = 'esc pause';
     fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
 
     const filled = Math.round(this.progress * fb.cols);
@@ -521,8 +526,16 @@ export class Game {
       }
     }
 
-    if (paused) fb.textCentered(Math.floor(fb.rows / 2), '  PAUSED - space to resume  ', 0x000000, 0xffd257);
+    if (paused) this.#drawPauseMenu(fb);
     else if (this.time < 0) this.#drawCountdown(fb);
+  }
+
+  #drawPauseMenu(fb) {
+    const row = Math.floor(fb.rows / 2) - 1;
+    fb.textCentered(row, '  paused  ', 0x000000, 0xffd257);
+    fb.textCentered(row + 2, 'esc  resume', 0xc8d0dc);
+    fb.textCentered(row + 3, 'r    retry', 0x8a94a8);
+    fb.textCentered(row + 4, 'q    quit', 0x8a94a8);
   }
 
   // shown while song time is negative, so during the lead in
