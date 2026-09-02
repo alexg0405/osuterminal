@@ -9,7 +9,7 @@
 //   osuterminal usesongs            include maps from the osu! Songs folder
 //   osuterminal --no-import-osu     skip the osu! Songs folder
 //
-// flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
+// flags: --offset <ms>  --volume <n>  --relative [--sens <n>]  --songs <dir>
 
 import { readdir, access, mkdir } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -26,6 +26,7 @@ import { showResult } from './result.mjs';
 import { browseOnline } from './net/browse.mjs';
 import { search as searchMirror, download as downloadSet } from './net/mirror.mjs';
 import { extractOsz } from './net/osz.mjs';
+import { clampVolume, parseVolumeArg } from './volume.mjs';
 import {
   defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
   libraryRoots, mergeMaps, parseImportOsuArg,
@@ -58,11 +59,18 @@ function parseArgs(argv, cfg) {
     songs: cfg.songsDir ?? defaultSongsDir(),
     importOsu: cfg.importOsu === true,
     importOsuFlag: null,          // 'on' | 'off' when they passed a flag this run
+    masterVolume: clampVolume(cfg.masterVolume, 0.8),
+    musicVolume: clampVolume(cfg.musicVolume, 1),
+    effectVolume: clampVolume(cfg.effectVolume, 1),
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-d' || a === '--diff') out.diff = Number(argv[++i]);
     else if (a === '--offset') out.offset = Number(argv[++i]);
+    else if (a === '--volume') {
+      const v = parseVolumeArg(argv[++i]);
+      if (v != null) out.masterVolume = v;
+    }
     else if (a === '--sens') out.sens = Number(argv[++i]);
     else if (a === '--relative') out.aimMode = 'relative';
     else if (a === '--absolute') out.aimMode = 'absolute';
@@ -194,6 +202,7 @@ ${bold('options')}
       --relative     relative aim instead of absolute ${dim('(cursor stops tracking your mouse)')}
       --sens <n>     sensitivity, relative mode only
       --offset <ms>  audio offset override ${dim('(default 0, remembered after --calibrate)')}
+      --volume <n>   master volume 0–100 ${dim('(remembered)')}
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
       --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
@@ -203,6 +212,9 @@ ${bold('options')}
 
 ${bold('in game')}
   z / x / mouse      hit
+  - / =              master volume
+  [ / ]              music volume
+  , / .              hitsounds
   esc                pause, then r retry or q song select
   after a map        results: r retry, enter song select
   song select        \\ download more   / filter this list
@@ -224,6 +236,7 @@ async function main() {
 
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
+  if (process.argv.includes('--volume')) saveConfig({ masterVolume: args.masterVolume });
 
   if (args.importOsuFlag === 'on') saveConfig({ importOsu: true });
   if (args.importOsuFlag === 'off') saveConfig({ importOsu: false });
@@ -362,9 +375,11 @@ async function play(chosen, args) {
 
   const game = new Game(chosen, {
     audioOffsetMs: args.offset, sensitivity: args.sens, aimMode: args.aimMode, keys: args.keys,
+    masterVolume: args.masterVolume, musicVolume: args.musicVolume, effectVolume: args.effectVolume,
+    onVolume: (v) => saveConfig(v),
   });
   await game.prepareAudio(audio.sampleRate);
-  console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause`));
+  console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause   -/= volume`));
   await new Promise((r) => setTimeout(r, 700));
 
   // retry from pause or the results screen replays the same map. q from pause

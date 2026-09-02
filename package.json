@@ -1,6 +1,6 @@
 {
   "name": "osuterminal",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "type": "module",
   "description": "osu!standard, playable in a terminal",
   "license": "MIT",
@@ -48,14 +48,18 @@
     "test:result": "node tools/result-test.mjs",
     "test:stack": "node tools/stack-test.mjs",
     "test:browse": "node tools/browse-test.mjs",
-    "test:playfield": "node tools/playfield-test.mjs"
+    "test:playfield": "node tools/playfield-test.mjs",
+    "test:volume": "node tools/volume-test.mjs",
+    "test:background": "node tools/background-test.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "fflate": "^0.8.3",
+    "jpeg-js": "^0.4.4",
     "koffi": "^3.1.6",
-    "mpg123-decoder": "^1.0.3"
+    "mpg123-decoder": "^1.0.3",
+    "pngjs": "^7.0.0"
   }
 }

@@ -16,6 +16,16 @@ export const HitObjectType = {
 
 const NUM = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 
+// 0,0,"bg.jpg",0,0   or   Background,0,bg.jpg
+export function parseBackgroundEvent(line) {
+  const t = String(line).trim();
+  if (!t || t.startsWith('//')) return null;
+  const m = t.match(/^(?:0|Background)\s*,\s*[^,]*\s*,\s*(?:"([^"]+)"|([^,]+))/i);
+  if (!m) return null;
+  const name = (m[1] ?? m[2] ?? '').trim();
+  return name || null;
+}
+
 // CS/AR/OD turn into real numbers through these curves. same values osu uses.
 export class Difficulty {
   constructor({ cs = 5, ar = 5, od = 5, hp = 5, sliderMultiplier = 1.4, sliderTickRate = 1 } = {}) {
@@ -73,6 +83,7 @@ export class Beatmap {
     this.hitObjects = [];
     this.dir = '';
     this.file = '';
+    this.backgroundFile = '';
   }
 
   get title()   { return this.metadata.Title ?? '(unknown)'; }
@@ -83,6 +94,13 @@ export class Beatmap {
   get isStandard() { return this.mode === 0; }
   get audioPath()  { return path.join(this.dir, this.general.AudioFilename ?? ''); }
   get audioLeadIn(){ return NUM(this.general.AudioLeadIn, 0); }
+  get backgroundPath() {
+    if (!this.backgroundFile || !this.dir) return null;
+    const resolved = path.resolve(this.dir, this.backgroundFile.replace(/[\\/]+/g, path.sep));
+    const rel = path.relative(path.resolve(this.dir), resolved);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    return resolved;
+  }
 
   // last uninherited timing point at or before this time
   timingAt(time) {
@@ -133,7 +151,8 @@ export class Beatmap {
         case 'Difficulty': this.#kv(line, diff); break;
         case 'TimingPoints': this.#timingPoint(line); break;
         case 'HitObjects':   this.#hitObject(line); break;
-        default: break;   // Events, Colours, etc. not needed
+        case 'Events':       this.#event(line); break;
+        default: break;   // Colours, etc. not needed
       }
     }
 
@@ -155,6 +174,13 @@ export class Beatmap {
     const i = line.indexOf(':');
     if (i < 0) return;
     into[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+  }
+
+  // 0,0,"bg.jpg",0,0  — first background wins. video/storyboard lines are ignored.
+  #event(line) {
+    if (this.backgroundFile) return;
+    const name = parseBackgroundEvent(line);
+    if (name) this.backgroundFile = name;
   }
 
   // time,beatLength,meter,sampleSet,sampleIndex,volume,uninherited,effects

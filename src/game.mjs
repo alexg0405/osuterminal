@@ -9,6 +9,8 @@ import { HitsoundBank } from './audio/hitsounds.mjs';
 import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
 import { applyStacking } from './core/stack.mjs';
 import { rankFromCounts } from './grade.mjs';
+import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
+import { loadBackground, coverScale, BG_DIM } from './render/background.mjs';
 import { stdout } from 'node:process';
 
 const CSI = '\x1b[';
@@ -45,13 +47,24 @@ export function sliderProgress(o, t) {
 }
 
 export class Game {
-  constructor(beatmap, { audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'] } = {}) {
+  #bgSrc = null;
+  #bgFit = null;
+
+  constructor(beatmap, {
+    audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'],
+    masterVolume = 0.8, musicVolume = 1, effectVolume = 1, onVolume = null,
+  } = {}) {
     this.map = beatmap;
     this.diff = beatmap.difficulty;
     this.audioOffsetMs = audioOffsetMs;
     this.sensitivity = sensitivity;
     this.aimMode = aimMode;
     this.keys = keys;
+    this.masterVolume = clampVolume(masterVolume, 0.8);
+    this.musicVolume = clampVolume(musicVolume, 1);
+    this.effectVolume = clampVolume(effectVolume, 1);
+    this.onVolume = onVolume;
+    this.volumeToast = null;
 
     const src = beatmap.hitObjects.filter((o) => !o.isSpinner);
     this.objects = src.map((o, i) => {
@@ -211,6 +224,7 @@ export class Game {
   // skipping this is fine, you just get no hitsounds.
   async prepareAudio(sampleRate) {
     const bank = await HitsoundBank.forBeatmap(this.map, sampleRate);
+    const bgP = this.#loadBackground();
     await bank.prime(this.map);
 
     const src = this.map.hitObjects.filter((h) => !h.isSpinner);
@@ -222,7 +236,40 @@ export class Game {
     }
     [this.tickSample] = await bank.resolve(this.map.timingPoints[0]?.sampleSet ?? 1, 0, 0);
     this.hitsoundStats = { loaded: bank.loaded, synthesized: bank.synthesized };
+    await bgP;
     return this;
+  }
+
+  async #loadBackground() {
+    this.#bgSrc = await loadBackground(this.map.backgroundPath);
+    this.#bgFit = null;
+  }
+
+  #applyGains(player = this.audio) {
+    if (!player) return;
+    const g = mixGains(this.masterVolume, this.musicVolume, this.effectVolume);
+    player.musicGain = g.music;
+    player.effectGain = g.effect;
+  }
+
+  #handleVolumeKey(ch) {
+    let which = null, dir = 0;
+    if (ch === '-' || ch === '_') { which = 'masterVolume'; dir = -1; }
+    else if (ch === '=' || ch === '+') { which = 'masterVolume'; dir = 1; }
+    else if (ch === '[') { which = 'musicVolume'; dir = -1; }
+    else if (ch === ']') { which = 'musicVolume'; dir = 1; }
+    else if (ch === ',') { which = 'effectVolume'; dir = -1; }
+    else if (ch === '.') { which = 'effectVolume'; dir = 1; }
+    else return false;
+    this[which] = stepVolume(this[which], dir);
+    this.#applyGains();
+    this.volumeToast = { which, until: nowMs() + 1400 };
+    this.onVolume?.({
+      masterVolume: this.masterVolume,
+      musicVolume: this.musicVolume,
+      effectVolume: this.effectVolume,
+    });
+    return true;
   }
 
   #advance() {
@@ -322,6 +369,7 @@ export class Game {
 
     input.on('key', ({ ch }) => {
       if (ch === '\x03') { quitApp = true; quit = true; return; }
+      if (this.#handleVolumeKey(ch)) return;
       // escape opens the pause screen instead of dumping you out mid map
       if (ch === '\x1b' || ch === ' ') { setPaused(!paused); return; }
       if (paused) {
@@ -332,7 +380,9 @@ export class Game {
 
     stdout.write(`${CSI}?1049h${CSI}?25l`);
     await input.enable();
-    player.open().setMusic(padded).start();
+    player.open().setMusic(padded);
+    this.#applyGains(player);
+    player.start();
 
     try {
       while (!quit) {
@@ -377,7 +427,7 @@ export class Game {
   // ------------------------------------------------------------- rendering
   // public so the render benchmark can call it without a terminal
   draw(fb, pf, input, paused, cursor) {
-    fb.clear(8, 8, 14);
+    if (!this.#blitBackground(fb)) fb.clear(8, 8, 14);
 
     const pre = this.diff.preempt, fade = this.diff.fadeIn;
     const rad = pf.len(this.diff.radius);
@@ -394,6 +444,25 @@ export class Game {
 
     this.#drawHud(fb, paused);
     this.#drawCursor(fb, pf, input, cursor);
+    this.#drawVolumeToast(fb, paused);
+  }
+
+  #blitBackground(fb) {
+    if (!this.#bgSrc) return false;
+    if (!this.#bgFit || this.#bgFit.w !== fb.width || this.#bgFit.h !== fb.height) {
+      this.#bgFit = {
+        w: fb.width, h: fb.height,
+        px: coverScale(this.#bgSrc.data, this.#bgSrc.width, this.#bgSrc.height, fb.width, fb.height, BG_DIM),
+      };
+    }
+    return fb.blit(this.#bgFit.px);
+  }
+
+  #drawVolumeToast(fb, paused) {
+    if (paused || !this.volumeToast || nowMs() > this.volumeToast.until) return;
+    const label = { masterVolume: 'volume', musicVolume: 'music', effectVolume: 'hitsounds' }[this.volumeToast.which];
+    const text = `  ${label} ${volumePercent(this[this.volumeToast.which])}  `;
+    fb.textCentered(Math.min(fb.rows - 3, Math.floor(fb.rows / 2) + 5), text, 0xffd257, 0x12121a);
   }
 
   #drawObject(fb, pf, o, rad, pre, fade) {
@@ -525,11 +594,14 @@ export class Game {
   }
 
   #drawPauseMenu(fb) {
-    const row = Math.floor(fb.rows / 2) - 1;
+    const row = Math.max(1, Math.floor(fb.rows / 2) - 5);
     fb.textCentered(row, '  paused  ', 0x000000, 0xffd257);
-    fb.textCentered(row + 2, 'esc  resume', 0xc8d0dc);
-    fb.textCentered(row + 3, 'r    retry', 0x8a94a8);
-    fb.textCentered(row + 4, 'q    menu', 0x8a94a8);
+    fb.textCentered(row + 2, `-/=  volume    ${volumePercent(this.masterVolume)}`, 0xc8d0dc);
+    fb.textCentered(row + 3, `[/]  music     ${volumePercent(this.musicVolume)}`, 0x8a94a8);
+    fb.textCentered(row + 4, `,/.  hitsounds ${volumePercent(this.effectVolume)}`, 0x8a94a8);
+    fb.textCentered(row + 6, 'esc  resume', 0xc8d0dc);
+    fb.textCentered(row + 7, 'r    retry', 0x8a94a8);
+    fb.textCentered(row + 8, 'q    menu', 0x8a94a8);
   }
 
   // shown while song time is negative, so during the lead in

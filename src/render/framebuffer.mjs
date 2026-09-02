@@ -33,6 +33,13 @@ export class Framebuffer {
     this.prevChar = new Array(cols * rows).fill(0);
   }
 
+  blit(src) {
+    if (!src || src.length !== this.px.length) return false;
+    this.px.set(src);
+    this.txtChar.fill(0);
+    return true;
+  }
+
   clear(r = 0, g = 0, b = 0) {
     const p = this.px;
     if (r === 0 && g === 0 && b === 0) p.fill(0);
