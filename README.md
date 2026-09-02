@@ -4,7 +4,7 @@ osu!standard in a terminal, with mouse aim and hit circles.
 
 Maps you download land in `~/osuterminal/Songs`. Two easy beginner maps (Warmup and
 First Steps) ship with the package so you can play immediately. If you already have
-osu! installed, `osuterminal --import-osu` will also list those maps in place — nothing
+osu! installed, `osuterminal usesongs` will also list those maps in place — nothing
 is copied, and it is off until you choose it.
 
 ## install
@@ -30,12 +30,12 @@ From the GitHub repo instead of npm: `npm.cmd install -g alexg0405/osuterminal`.
 ## usage
 
 ```bash
-osuterminal --calibrate           # run this first
 osuterminal                       # song select
+osuterminal usesongs              # include your existing osu! Songs folder
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
-osuterminal --import-osu          # include your existing osu! Songs folder
+osuterminal --calibrate           # measure audio offset
 osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
@@ -51,7 +51,7 @@ You don't need osu! installed. Downloads go to `~/osuterminal/Songs` (override w
 search, arrows to move around, enter again to download. Tab gets you there from song
 select too, and if your Songs folder is empty it just opens automatically.
 
-To play maps you already have in osu!, run `osuterminal --import-osu`. That only
+To play maps you already have in osu!, run `osuterminal usesongs`. That only
 reads `%LOCALAPPDATA%\osu!\Songs` (or the equivalent on other OSes) — it does not
 copy tens of gigabytes, and it does not create an osu! folder. `--no-import-osu`
 turns it back off. Both are remembered in `~/.osuterminal.json`. On first launch,
@@ -76,19 +76,16 @@ osuterminal --get 354366
 
 ## calibration
 
-Offset defaults to -15ms, which is what I measured on my machine two separate ways (the
-metronome said -13, an actual play through said -16.9). That should be close enough that
-you never think about it.
-
-If it feels off on your setup, `osuterminal --calibrate` plays a metronome, you tap along
-to what you hear, and it saves your own number to `~/.osuterminal.json`.
+Offset defaults to 0. If hits feel early or late on your setup, `osuterminal --calibrate`
+plays a metronome, you tap along to what you hear, and it saves your number to
+`~/.osuterminal.json`. `--offset <ms>` overrides it for one run.
 
 Audio latency comes from the sound device, your headphones, the terminal, and your own
 reaction time. There's no way to calculate it, you have to measure it.
 
-One thing I did fix in code: mpg123 strips the LAME encoder delay when it decodes mp3s
-but osu's decoder doesn't, so maps end up ~13ms early and every hit reads as late.
-decode.mjs adds those samples back.
+mpg123 strips the LAME encoder delay when it decodes mp3s but osu's decoder doesn't,
+so maps would end up ~13ms early and every hit would read as late. decode.mjs adds
+those samples back.
 
 ## what works
 

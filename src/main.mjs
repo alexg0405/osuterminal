@@ -6,7 +6,7 @@
 //   osuterminal <search> -d 3       pick difficulty 3
 //   osuterminal --list              print the library
 //   osuterminal --calibrate         measure audio offset
-//   osuterminal --import-osu        include maps from the osu! Songs folder
+//   osuterminal usesongs            include maps from the osu! Songs folder
 //   osuterminal --no-import-osu     skip the osu! Songs folder
 //
 // flags: --offset <ms>  --relative [--sens <n>]  --songs <dir>
@@ -27,7 +27,7 @@ import { search as searchMirror, download as downloadSet } from './net/mirror.mj
 import { extractOsz } from './net/osz.mjs';
 import {
   defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
-  libraryRoots, mergeMaps,
+  libraryRoots, mergeMaps, parseImportOsuArg,
 } from './library.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -35,11 +35,6 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // config goes in the home directory instead of next to the source, so a global
 // install keeps its calibration no matter where you run it from.
 const CONFIG = path.join(os.homedir(), '.osuterminal.json');
-
-// measured on my machine two different ways: the metronome said -13ms and a real play
-// through said -16.9ms. -15 splits it. calibration can still override this but you
-// should not have to touch it to get a playable feel out of the box.
-const DEFAULT_OFFSET_MS = -15;
 
 function loadConfig() {
   try { return existsSync(CONFIG) ? JSON.parse(readFileSync(CONFIG, 'utf8')) : {}; }
@@ -55,33 +50,35 @@ function parseArgs(argv, cfg) {
   const out = {
     terms: [], diff: null, list: false, calibrate: false, help: false,
     online: null, get: null, download: false,
-    offset: cfg.audioOffsetMs ?? DEFAULT_OFFSET_MS,
+    offset: cfg.audioOffsetMs ?? 0,
     sens: cfg.sensitivity ?? 1.0,
     keys: cfg.keys ?? ['z', 'x'],
     aimMode: cfg.aimMode ?? 'absolute',
     songs: cfg.songsDir ?? defaultSongsDir(),
     importOsu: cfg.importOsu === true,
     importOsuFlag: null,          // 'on' | 'off' when they passed a flag this run
-    offsetFromConfig: cfg.audioOffsetMs !== undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-d' || a === '--diff') out.diff = Number(argv[++i]);
-    else if (a === '--offset') { out.offset = Number(argv[++i]); out.offsetFromConfig = false; }
+    else if (a === '--offset') out.offset = Number(argv[++i]);
     else if (a === '--sens') out.sens = Number(argv[++i]);
     else if (a === '--relative') out.aimMode = 'relative';
     else if (a === '--absolute') out.aimMode = 'absolute';
     else if (a === '--songs') out.songs = argv[++i];
-    else if (a === '--import-osu') { out.importOsu = true; out.importOsuFlag = 'on'; }
-    else if (a === '--no-import-osu') { out.importOsu = false; out.importOsuFlag = 'off'; }
-    else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
-    else if (a === '--list' || a === '-l') out.list = true;
-    else if (a === '--calibrate' || a === '-c') out.calibrate = true;
-    else if (a === '--help' || a === '-h') out.help = true;
-    else if (a === '--search') out.online = argv[++i];
-    else if (a === '--get') out.get = argv[++i];
-    else if (a === '--download') out.download = true;
-    else out.terms.push(a);
+    else {
+      const imp = parseImportOsuArg(a);
+      if (imp === 'on') { out.importOsu = true; out.importOsuFlag = 'on'; }
+      else if (imp === 'off') { out.importOsu = false; out.importOsuFlag = 'off'; }
+      else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
+      else if (a === '--list' || a === '-l') out.list = true;
+      else if (a === '--calibrate' || a === '-c') out.calibrate = true;
+      else if (a === '--help' || a === '-h') out.help = true;
+      else if (a === '--search') out.online = argv[++i];
+      else if (a === '--get') out.get = argv[++i];
+      else if (a === '--download') out.download = true;
+      else out.terms.push(a);
+    }
   }
   return out;
 }
@@ -183,20 +180,20 @@ function printHelp() {
 ${bold('osuterminal')}  osu!standard in your terminal
 
   ${bold('osuterminal')}                  interactive song select
+  ${bold('osuterminal usesongs')}         include your osu! Songs folder ${dim('(remembered)')}
   ${bold('osuterminal <search>')}         jump into the first matching map
   ${bold('osuterminal <search> -d 3')}    ...choosing the 3rd difficulty
   ${bold('osuterminal --download')}       browse and download beatmaps
   ${bold('osuterminal --list')}           print your library
-  ${bold('osuterminal --calibrate')}      measure your audio offset ${dim('(do this first)')}
+  ${bold('osuterminal --calibrate')}      measure your audio offset
 
 ${bold('options')}
   -d, --diff <n>     difficulty index within the matched set
       --keys <ab>    tap keys, default zx ${dim('(remembered)')}
       --relative     relative aim instead of absolute ${dim('(cursor stops tracking your mouse)')}
       --sens <n>     sensitivity, relative mode only
-      --offset <ms>  audio offset override ${dim('(default -15, you should not need this)')}
+      --offset <ms>  audio offset override ${dim('(default 0, remembered after --calibrate)')}
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
-      --import-osu   include maps from your osu! Songs folder ${dim('(remembered, nothing is copied)')}
       --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
       --get <id>     download a beatmap set by id
@@ -259,7 +256,7 @@ async function main() {
       saveConfig({ importOsu: choice });
       console.log(choice
         ? dim(`\n  importing from ${osuSongsDir()}  (--no-import-osu to undo)\n`)
-        : dim(`\n  skipped.  osuterminal --import-osu  later if you change your mind\n`));
+        : dim(`\n  skipped.  osuterminal usesongs  later if you change your mind\n`));
     }
   } else if (args.importOsuFlag === 'on' && osuSongsPresent()) {
     console.log(dim(`\n  importing from ${osuSongsDir()}\n`));
@@ -275,7 +272,7 @@ async function main() {
     console.log(`\n  No osu!standard maps found under:\n  ${dim(args.songs)}\n`);
     if (!args.importOsu && osuSongsPresent()) {
       console.log(`  You have an osu! library at:\n  ${dim(osuSongsDir())}`);
-      console.log(`  Include it with  ${bold('osuterminal --import-osu')}\n`);
+      console.log(`  Include it with  ${bold('osuterminal usesongs')}\n`);
     }
     if (!stdout.isTTY) throw new Error('Run  osuterminal --download  in a terminal to get some.');
     console.log('  Opening the downloader...\n');
@@ -299,7 +296,7 @@ async function main() {
   if (!stdout.isTTY) throw new Error('Song select needs a terminal. Use --list, or pass a search term.');
 
   if (startMap) {
-    const result = await play(startMap, args, cfg);
+    const result = await play(startMap, args);
     if (result?.quitApp) return;
   }
 
@@ -312,7 +309,7 @@ async function main() {
       if (got) maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
       continue;
     }
-    const result = await play(action.map, args, cfg);
+    const result = await play(action.map, args);
     if (result?.quitApp) return;
   }
 }
@@ -345,7 +342,7 @@ async function getById(id, songsDir) {
   console.log(`  saved ${r.osuCount} difficulties to ${dim(r.folder)}\n`);
 }
 
-async function play(chosen, args, cfg) {
+async function play(chosen, args) {
   const d = chosen.difficulty;
   console.log(bold(`\n${chosen.artist} - ${chosen.title}`) + dim(`  [${chosen.diffName}]`));
   console.log(dim(`CS${d.cs} AR${d.ar} OD${d.od}  ${chosen.hitObjects.length} objects`));
