@@ -277,5 +277,79 @@ console.log('\n=== hitsounds ===');
   check(g.tickSample?.pcm.length > 0, 'slider tick sample resolved');
 }
 
+// ---------------------------------------------------------------- osz extraction
+console.log('\n=== osz extraction ===');
+{
+  const { zipSync } = await import('fflate');
+  const { extractOsz, folderNameFor, alreadyHave } = await import('../src/net/osz.mjs');
+  const { rm, readdir, readFile } = await import('node:fs/promises');
+  const enc = (s) => new TextEncoder().encode(s);
+
+  const tmp = path.join(process.env.TEMP ?? '/tmp', 'osuterminal-osz-test');
+  await rm(tmp, { recursive: true, force: true });
+
+  const osu = ['osu file format v14', '', '[General]', 'Mode: 0', '',
+    '[Difficulty]', 'CircleSize:4', 'OverallDifficulty:8', 'ApproachRate:9', '',
+    '[TimingPoints]', '0,500,4,2,0,100,1,0', '',
+    '[HitObjects]', '100,100,1000,1,0'].join('\n');
+
+  const zip = zipSync({
+    'song [Easy].osu': enc(osu),
+    'song [Hard].osu': enc(osu),
+    'audio.mp3': enc('not really an mp3 but it is a file'),
+    'bg.jpg': enc('image bytes'),
+    'video.mp4': enc('x'.repeat(50000)),      // should be skipped
+    'storyboard.osb': enc('sb'),              // should be skipped
+    'readme.txt': enc('junk'),                // not in the keep list
+  });
+
+  const r = await extractOsz(Buffer.from(zip), tmp, { setId: 999, artist: 'Test', title: 'Song' });
+  const onDisk = (await readdir(r.dir)).sort();
+  check(r.osuCount === 2, `both .osu files extracted (${r.osuCount})`);
+  check(onDisk.includes('audio.mp3') && onDisk.includes('bg.jpg'), 'audio and background kept');
+  check(!onDisk.includes('video.mp4'), 'video skipped');
+  check(!onDisk.includes('storyboard.osb'), 'storyboard skipped');
+  check(!onDisk.includes('readme.txt'), 'unknown file types skipped');
+  check(r.skipped === 3, `three files skipped (${r.skipped})`);
+  check(r.folder === '999 Test - Song', `folder named like osu does (${r.folder})`);
+  check(await alreadyHave(tmp, 999), 'alreadyHave finds it afterwards');
+  check(!(await alreadyHave(tmp, 1000)), 'alreadyHave says no for a set we do not have');
+
+  // the extracted maps have to survive our own parser
+  const parsed = await Beatmap.load(path.join(r.dir, 'song [Easy].osu'));
+  check(parsed.isStandard && parsed.hitObjects.length === 1, 'extracted .osu parses');
+
+  // a zip entry that tries to escape the folder must not
+  const evil = zipSync({
+    '../../../pwned.osu': enc(osu),
+    'ok [Normal].osu': enc(osu),
+  });
+  const r2 = await extractOsz(Buffer.from(evil), tmp, { setId: 998, artist: 'Evil', title: 'Zip' });
+  const escaped = (await readdir(tmp)).includes('pwned.osu');
+  check(!escaped, 'path traversal entry cannot escape the songs folder');
+  check(r2.written.every((f) => !f.includes('..')), 'no .. survives in written paths');
+
+  // filenames windows will not accept
+  const nasty = zipSync({ 'a:b*c?.osu': enc(osu) });
+  const r3 = await extractOsz(Buffer.from(nasty), tmp, { setId: 997, artist: 'Bad<>Name', title: 'Q?' });
+  check(!/[<>:"|?*]/.test(r3.folder), `folder name sanitised (${r3.folder})`);
+  check(r3.osuCount === 1, 'file with illegal characters still extracted');
+
+  // empty and broken archives
+  let threw = false;
+  try { await extractOsz(Buffer.from(zipSync({ 'only.txt': enc('x') })), tmp, { setId: 1, artist: 'a', title: 'b' }); }
+  catch { threw = true; }
+  check(threw, 'archive with no .osu files is rejected');
+
+  threw = false;
+  try { await extractOsz(Buffer.from('not a zip at all'), tmp, { setId: 2, artist: 'a', title: 'b' }); }
+  catch { threw = true; }
+  check(threw, 'garbage input is rejected');
+
+  check(folderNameFor(123, 'A/B', 'C:D') === '123 A_B - C_D', 'folderNameFor sanitises slashes and colons');
+
+  await rm(tmp, { recursive: true, force: true });
+}
+
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
 process.exit(failures ? 1 : 0);
