@@ -183,6 +183,7 @@ export class Game {
     if (kind === 'MISS') this.#breakCombo();
     else {
       this.#addCombo(o.kind === 'slider' ? 30 : JUDGE[kind].score);
+      this.#playHitsound(o);
       this.errors.push(dt);
       if (this.errors.length > 48) this.errors.shift();
     }
@@ -270,17 +271,17 @@ export class Game {
       while (o.nextTick < o.ticks.length && o.ticks[o.nextTick].time <= t) {
         const tk = o.ticks[o.nextTick++];
         tk.hit = o.tracking;
-        if (tk.hit) this.#addCombo(10); else this.#breakCombo();
+        if (tk.hit) { this.#addCombo(10); this.#playTickSound(0.45); } else this.#breakCombo();
       }
       while (o.nextRepeat < o.repeats.length && o.repeats[o.nextRepeat].time <= t) {
         const rp = o.repeats[o.nextRepeat++];
         rp.hit = o.tracking;
-        if (rp.hit) this.#addCombo(30); else this.#breakCombo();
+        if (rp.hit) { this.#addCombo(30); this.#playHitsound(o); } else this.#breakCombo();
       }
 
       if (t >= o.endTime) {
         o.tailHit = o.tracking;
-        if (o.tailHit) this.#addCombo(30);
+        if (o.tailHit) { this.#addCombo(30); this.#playHitsound(o); }
         this.#finalizeSlider(o);
       }
     }
