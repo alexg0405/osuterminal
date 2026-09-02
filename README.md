@@ -1,6 +1,7 @@
 # osuterminal
 
-osu!standard in a terminal, with mouse aim and hit circles.
+Unofficial osu!standard in a terminal, with mouse aim and hit circles. Not
+affiliated with ppy Pty Ltd or osu!.
 
 Maps you download land in `~/osuterminal/Songs`. Two easy beginner maps (Warmup and
 First Steps) ship with the package so you can play immediately. If you already have
@@ -9,15 +10,31 @@ is copied, and it is off until you choose it.
 
 ## install
 
-PowerShell's default execution policy blocks `.ps1` shims, including the `npm` that
-ships with Node. Call the `.cmd` instead:
+Windows, one line. Installs Node.js LTS if you do not have it, then the npm package.
+Nothing is cloned from GitHub.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/alexg0405/osuterminal/main/install.ps1 | iex"
+```
+
+Then:
+
+```powershell
+osuterminal.cmd
+```
+
+PowerShell's default execution policy blocks `.ps1` shims, including the `npm` and
+`osuterminal` names Node installs. The bootstrap always uses `.cmd`, and so should you.
+
+If you already have Node 20+:
 
 ```bash
 npm.cmd install -g osuterminal
 ```
 
-Then `osuterminal` works from anywhere. If PowerShell blocks that too, run
-`osuterminal.cmd`. `npx.cmd osuterminal` also works without a global install.
+When that finishes it prints **Type osuterminal to start**. If PowerShell blocks the
+name, use `osuterminal.cmd`. `npx.cmd --yes osuterminal` also works without a global
+install.
 
 To make the plain `npm` / `osuterminal` names work in PowerShell:
 
@@ -53,20 +70,23 @@ Rebind the tap keys with `osuterminal --keys df`. Saves and exits, nothing else 
 
 ## downloading maps
 
-You don't need osu! installed. Downloads go to `~/osuterminal/Songs` (override with
-`--songs <dir>`). `osuterminal --download` opens a browser, or press `\` from song
-select: type a query, enter to search, `\` to leave the field, w/s to move, enter
-again to download. Tab still gets you there too, and if your Songs folder is empty
-it just opens automatically.
-
-To play maps you already have in osu!, run `osuterminal usesongs`. That only
+The legally cleaner path if you already play osu! is `osuterminal usesongs`. That only
 reads `%LOCALAPPDATA%\osu!\Songs` (or the equivalent on other OSes) — it does not
 copy tens of gigabytes, and it does not create an osu! folder. `--no-import-osu`
 turns it back off. Both are remembered in `~/.osuterminal.json`. On first launch,
 if that folder already exists, you get asked once.
 
-Maps come from osu.direct, nerinyan or sayobot, whichever answers first. No account or
-api key needed. A mirror that blocks us gets dropped for the rest of the session so it
+You can also download `.osz` files into `~/osuterminal/Songs` (override with
+`--songs <dir>`). `osuterminal --download` opens a browser, or press `\` from song
+select: type a query, enter to search, `\` to leave the field, w/s to move, enter
+again to download. Tab still gets you there too, and if your Songs folder is empty
+it just opens automatically.
+
+Those downloads come from third-party mirrors (osu.direct, nerinyan, sayobot), not
+from osu.ppy.sh. Songs stay copyrighted by their artists and mappers; this project
+does not license them. See [LEGAL.md](LEGAL.md).
+
+A mirror that blocks us gets dropped for the rest of the session so it
 does not get hammered.
 Video and storyboard files get stripped since nothing here can play them and they are
 usually most of the download. jpg/png backgrounds are kept and drawn pixelated in game.
@@ -175,6 +195,8 @@ src/net/osz.mjs            .osz extraction
 src/net/browse.mjs         download browser
 src/library.mjs            songs folder + optional osu! import
 src/main.mjs               cli
+install.ps1                Windows one-line bootstrap
+LEGAL.md                   unofficial / maps / branding notes
 tools/                     tests and benchmarks
 ```
 
@@ -194,6 +216,7 @@ node tools/browse-test.mjs   # download search keys
 node tools/playfield-test.mjs # notes stay on screen vertically
 node tools/volume-test.mjs   # volume clamp / step / mix
 node tools/background-test.mjs # beatmap bg parse + pixelate
+node tools/install-test.mjs  # bootstrap script + LEGAL.md checks
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo
 node tools/probe.mjs         # what your terminal supports
@@ -207,6 +230,8 @@ npm scripts exist too but PowerShell blocks npm's .ps1 shim by default, so eithe
 
 Windows, node 20+, terminal at least 60x20. koffi, mpg123-decoder, fflate, jpeg-js and
 pngjs are all prebuilt or pure js so you don't need a compiler.
+
+Unofficial fan project. Branding, maps, and music notes are in [LEGAL.md](LEGAL.md).
 
 Input is Windows only right now. There's a VT fallback that works anywhere but you lose
 pixel accurate aim.

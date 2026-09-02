@@ -1,8 +1,8 @@
 {
   "name": "osuterminal",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "type": "module",
-  "description": "osu!standard, playable in a terminal",
+  "description": "unofficial osu!standard client for the terminal",
   "license": "MIT",
   "author": "Alexa Guo",
   "bin": {
@@ -11,8 +11,11 @@
   "files": [
     "src",
     "tools/calibrate.mjs",
+    "tools/postinstall.mjs",
     "bundled",
-    "README.md"
+    "README.md",
+    "LEGAL.md",
+    "LICENSE"
   ],
   "allowScripts": {
     "koffi": true
@@ -40,6 +43,7 @@
     "test:parse": "node tools/parse-test.mjs",
     "test:audio": "node tools/audio-spike.mjs",
     "calibrate": "node tools/calibrate.mjs",
+    "postinstall": "node tools/postinstall.mjs",
     "test:slider": "node tools/slider-test.mjs",
     "bench": "node tools/render-bench.mjs",
     "test:origin": "node tools/origin-test.mjs",
@@ -51,7 +55,8 @@
     "test:browse": "node tools/browse-test.mjs",
     "test:playfield": "node tools/playfield-test.mjs",
     "test:volume": "node tools/volume-test.mjs",
-    "test:background": "node tools/background-test.mjs"
+    "test:background": "node tools/background-test.mjs",
+    "test:install": "node tools/install-test.mjs"
   },
   "engines": {
     "node": ">=20"
