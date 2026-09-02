@@ -113,6 +113,7 @@ $npm = Get-NpmCmd
 if (-not $npm) { throw 'npm.cmd not found. Reinstall Node.js from https://nodejs.org and re-run.' }
 
 Say "npm  $npm" 'DarkGray'
+$env:OSUTERMINAL_QUIET_HELLO = '1'
 Say "installing $NpmPackage globally..." 'Yellow'
 & $npm install -g $NpmPackage
 if ($LASTEXITCODE -ne 0) { throw "npm install failed (exit $LASTEXITCODE)." }
@@ -125,12 +126,12 @@ if (-not (Test-Path $shim)) {
 Ensure-UserPath $prefix
 
 Say ''
-Say 'done.' 'Green'
+Say 'osuterminal is installed.' 'Green'
 Say ''
-Say '  osuterminal.cmd' 'White'
+Say '  Type  osuterminal  to start' 'White'
 Say ''
-Say 'PowerShell blocks the osuterminal.ps1 shim by default, so use .cmd.' 'DarkGray'
-Say 'Two beginner maps ship with the package. osuterminal.cmd usesongs will' 'DarkGray'
+Say 'If PowerShell blocks that name, type  osuterminal.cmd' 'DarkGray'
+Say 'Two beginner maps ship with the package. osuterminal usesongs will' 'DarkGray'
 Say 'also list maps you already downloaded in osu! (read-only, nothing copied).' 'DarkGray'
 Say 'Unofficial — see LEGAL.md in the repo. Not affiliated with ppy Pty Ltd.' 'DarkGray'
 Say ''

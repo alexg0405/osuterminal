@@ -32,7 +32,9 @@ If you already have Node 20+:
 npm.cmd install -g osuterminal
 ```
 
-`npx.cmd --yes osuterminal` also works without a global install.
+When that finishes it prints **Type osuterminal to start**. If PowerShell blocks the
+name, use `osuterminal.cmd`. `npx.cmd --yes osuterminal` also works without a global
+install.
 
 To make the plain `npm` / `osuterminal` names work in PowerShell:
 

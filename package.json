@@ -11,6 +11,7 @@
   "files": [
     "src",
     "tools/calibrate.mjs",
+    "tools/postinstall.mjs",
     "bundled",
     "README.md",
     "LEGAL.md",
@@ -42,6 +43,7 @@
     "test:parse": "node tools/parse-test.mjs",
     "test:audio": "node tools/audio-spike.mjs",
     "calibrate": "node tools/calibrate.mjs",
+    "postinstall": "node tools/postinstall.mjs",
     "test:slider": "node tools/slider-test.mjs",
     "bench": "node tools/render-bench.mjs",
     "test:origin": "node tools/origin-test.mjs",
