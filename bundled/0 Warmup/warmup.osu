@@ -1,0 +1,54 @@
+osu file format v14
+
+[General]
+AudioFilename: audio.wav
+AudioLeadIn: 0
+PreviewTime: 0
+Mode: 0
+
+[Metadata]
+Title:Warmup
+TitleUnicode:Warmup
+Artist:osuterminal
+ArtistUnicode:osuterminal
+Creator:osuterminal
+Version:Easy
+Source:osuterminal
+Tags:beginner bundled
+
+[Difficulty]
+HPDrainRate:2
+CircleSize:3
+OverallDifficulty:3
+ApproachRate:4
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,750,4,1,0,80,1,0
+
+[HitObjects]
+128,192,2000,5,0,0:0:0:0:
+384,192,3500,1,0,0:0:0:0:
+256,96,5000,1,0,0:0:0:0:
+256,288,6500,1,0,0:0:0:0:
+128,192,8000,5,0,0:0:0:0:
+384,192,9500,1,0,0:0:0:0:
+256,96,11000,1,0,0:0:0:0:
+256,288,12500,1,0,0:0:0:0:
+128,192,14000,5,0,0:0:0:0:
+384,192,15500,1,0,0:0:0:0:
+256,96,17000,1,0,0:0:0:0:
+256,288,18500,1,0,0:0:0:0:
+128,192,20000,5,0,0:0:0:0:
+384,192,21500,1,0,0:0:0:0:
+256,96,23000,1,0,0:0:0:0:
+256,288,24500,1,0,0:0:0:0:
+128,192,26000,5,0,0:0:0:0:
+384,192,27500,1,0,0:0:0:0:
+256,96,29000,1,0,0:0:0:0:
+256,288,30500,1,0,0:0:0:0:
+128,192,32000,5,0,0:0:0:0:
+384,192,33500,1,0,0:0:0:0:
+256,96,35000,1,0,0:0:0:0:
+256,288,36500,1,0,0:0:0:0:

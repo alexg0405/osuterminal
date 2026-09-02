@@ -3,6 +3,7 @@
 osu!standard in a terminal, with mouse aim and hit circles.
 
 Reads your existing osu! Songs folder, or downloads maps for you if you don't have one.
+Two easy beginner maps (Warmup and First Steps) ship with the package so you can play immediately.
 
 ## install
 

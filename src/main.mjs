@@ -94,28 +94,14 @@ function parseKeys(raw) {
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 
-async function loadLibrary(songsDir) {
+async function loadFromDir(root) {
   let dirs;
-  try { dirs = await readdir(songsDir, { withFileTypes: true }); }
-  catch (err) {
-    // no osu! install (or first run) — create the folder and treat it as an empty library
-    // so the downloader opens instead of dying.
-    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
-      try { await mkdir(songsDir, { recursive: true }); }
-      catch {
-        throw new Error(`Cannot create the songs folder:\n  ${songsDir}\n\n` +
-          `Point somewhere else with  --songs <dir>  (it will be remembered).`);
-      }
-      return [];
-    }
-    throw new Error(`Cannot read the songs folder:\n  ${songsDir}\n\n` +
-      `Point somewhere else with  --songs <dir>  (it will be remembered).`);
-  }
-
+  try { dirs = await readdir(root, { withFileTypes: true }); }
+  catch { return []; }
   const maps = [];
   for (const d of dirs) {
     if (!d.isDirectory()) continue;
-    const dir = path.join(songsDir, d.name);
+    const dir = path.join(root, d.name);
     let files;
     try { files = await readdir(dir); } catch { continue; }
     for (const f of files) {
@@ -127,6 +113,26 @@ async function loadLibrary(songsDir) {
     }
   }
   return maps;
+}
+
+const BUNDLED = path.join(HERE, '..', 'bundled');
+
+async function loadLibrary(songsDir) {
+  try { await readdir(songsDir); }
+  catch (err) {
+    // no osu! install (or first run) — create the folder so downloads have somewhere to go
+    if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) {
+      try { await mkdir(songsDir, { recursive: true }); }
+      catch {
+        throw new Error(`Cannot create the songs folder:\n  ${songsDir}\n\n` +
+          `Point somewhere else with  --songs <dir>  (it will be remembered).`);
+      }
+    } else {
+      throw new Error(`Cannot read the songs folder:\n  ${songsDir}\n\n` +
+        `Point somewhere else with  --songs <dir>  (it will be remembered).`);
+    }
+  }
+  return [...await loadFromDir(BUNDLED), ...await loadFromDir(songsDir)];
 }
 
 function printList(maps) {
