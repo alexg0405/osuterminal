@@ -1,26 +1,51 @@
 // beatmap mirror client.
 //
-// osu's own api needs an oauth app, so this uses public mirrors instead. no keys, no
-// login. catboy is the primary since its search returns full per difficulty info in
-// one request, nerinyan is the fallback for downloads if catboy is having a moment.
-//
-// downloads are .osz files, which are just zips.
+// osu's own api needs an oauth app, so this goes through public mirrors instead. no
+// keys, no login. downloads are .osz files, which are just zips.
 
+// four of them, because any one can be down, banned, or just having a bad day. all of
+// them return the same osu api shape for search, so normalise() handles them all.
+//
+// entries can do search, download, or both. sayobot is download only since its search
+// api is a different format and we do not need it.
 const MIRRORS = [
   {
     name: 'catboy',
-    search: (q, opts) =>
+    search: (q, o) =>
       `https://catboy.best/api/v2/search?query=${encodeURIComponent(q)}` +
-      `&mode=${opts.mode}&limit=${opts.limit}` + (opts.status ? `&status=${opts.status}` : ''),
+      `&mode=${o.mode}&limit=${o.limit}` + (o.status ? `&status=${o.status}` : ''),
     download: (id) => `https://catboy.best/d/${id}`,
   },
   {
+    name: 'osu.direct',
+    search: (q, o) =>
+      `https://osu.direct/api/v2/search?query=${encodeURIComponent(q)}&amount=${o.limit}&mode=${o.mode}`,
+    download: (id) => `https://osu.direct/api/d/${id}`,
+  },
+  {
     name: 'nerinyan',
-    search: (q, opts) =>
-      `https://api.nerinyan.moe/search?q=${encodeURIComponent(q)}&m=${opts.mode}&ps=${opts.limit}`,
+    search: (q, o) =>
+      `https://api.nerinyan.moe/search?q=${encodeURIComponent(q)}&m=${o.mode}&ps=${o.limit}`,
     download: (id) => `https://api.nerinyan.moe/d/${id}`,
   },
+  {
+    // dl.sayobot.cn is flaky, txy1 is their cdn host and answers reliably.
+    // novideo because we throw the video away on extract anyway.
+    name: 'sayobot',
+    download: (id) => `https://txy1.sayobot.cn/beatmaps/download/novideo/${id}`,
+  },
 ];
+
+const SEARCH_MIRRORS = MIRRORS.filter((m) => m.search);
+
+// a mirror that 403s or 429s us gets dropped for the rest of the session. tracked per
+// mirror rather than globally, otherwise one banned mirror either takes everything down
+// or gets retried forever.
+const blocked = new Set();
+export const blockedMirrors = () => [...blocked];
+export const isRateLimited = () => blocked.size > 0 && blocked.size >= SEARCH_MIRRORS.length;
+export const clearRateLimit = () => blocked.clear();
+const usable = (list) => list.filter((m) => !blocked.has(m.name));
 
 const TIMEOUT_MS = 30000;
 
@@ -64,20 +89,21 @@ function normalise(set) {
  * search for beatmap sets. only returns sets with at least one std difficulty.
  */
 export async function search(query, { mode = 0, limit = 50, status = null } = {}) {
-  let lastErr = null;
-  for (const m of MIRRORS) {
+  const errors = [];
+  for (const m of usable(SEARCH_MIRRORS)) {
     try {
       const res = await fetchWithTimeout(m.search(query, { mode, limit, status }));
-      if (!res.ok) throw new Error(`${m.name} returned ${res.status}`);
+      if (res.status === 403 || res.status === 429) { blocked.add(m.name); throw new Error(`${m.name} blocked us`); }
+      if (!res.ok) throw new Error(`${m.name} ${res.status}`);
       const json = await res.json();
       const sets = Array.isArray(json) ? json : (json.data ?? json.beatmapsets ?? []);
       const out = sets.map(normalise).filter((s) => s.diffs.length);
       if (out.length || sets.length) return { mirror: m.name, results: out };
     } catch (e) {
-      lastErr = e;
+      errors.push(e.name === 'AbortError' ? `${m.name} timed out` : e.message);
     }
   }
-  throw new Error(`every mirror failed. last error: ${lastErr?.message ?? 'unknown'}`);
+  throw new Error(`no mirror answered (${errors.join(', ')})`);
 }
 
 // thrown when every mirror says 404. that means nobody hosts the file, which is
@@ -99,27 +125,26 @@ export class NotHostedError extends Error {
 // before touching the body.
 //
 // this only ever runs for the one set you are looking at. i tried scanning a whole
-// page of 30 in parallel and catboy 403'd everything including search for a good
-// while afterwards. not worth it.
-let rateLimited = false;
-export const isRateLimited = () => rateLimited;
-export const clearRateLimit = () => { rateLimited = false; };
-
+// page of 30 in parallel and catboy banned us outright for it. not worth it.
+//
 // 'yes' hosted, 'no' definitely not hosted, 'unknown' could not tell.
 // only a real 404 means 'no'. a 403 or a timeout means we were blocked or the mirror is
 // having a bad day, and treating that as 'not hosted' marks half the page dead wrongly.
 export async function checkAvailable(setId, { timeoutMs = 5000, fetchImpl = fetch } = {}) {
-  if (rateLimited) return { status: 'unknown', mirror: null };
+  const list = usable(MIRRORS);
+  if (!list.length) return { status: 'unknown', mirror: null };
 
   let saw404 = false;
-  for (const m of MIRRORS) {
+  let anyAnswered = false;
+  for (const m of list) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       const res = await fetchImpl(m.download(setId), { signal: ctrl.signal, redirect: 'follow' });
       ctrl.abort();                        // we only wanted the status line
 
-      if (res.status === 403 || res.status === 429) { rateLimited = true; continue; }
+      if (res.status === 403 || res.status === 429) { blocked.add(m.name); continue; }
+      anyAnswered = true;
       if (res.status === 404) { saw404 = true; continue; }
       if (res.ok && !/text\/html/i.test(res.headers.get('content-type') ?? '')) {
         return { status: 'yes', mirror: m.name };
@@ -131,8 +156,9 @@ export async function checkAvailable(setId, { timeoutMs = 5000, fetchImpl = fetc
     }
   }
 
-  if (rateLimited) return { status: 'unknown', mirror: null };
-  return { status: saw404 ? 'no' : 'unknown', mirror: null };
+  // only claim "not hosted" if a mirror actually answered 404. if everything was
+  // blocked or timed out we genuinely do not know.
+  return { status: saw404 && anyAnswered ? 'no' : 'unknown', mirror: null };
 }
 
 /**
@@ -143,14 +169,14 @@ export async function download(setId, onProgress = null) {
   const errors = [];
   let all404 = true;
 
-  for (const m of MIRRORS) {
+  for (const m of usable(MIRRORS)) {
     try {
       const res = await fetchWithTimeout(m.download(setId), {}, 120000);
       if (!res.ok) {
         if (res.status === 403 || res.status === 429) {
-          rateLimited = true;
+          blocked.add(m.name);
           all404 = false;
-          throw new Error(`${m.name} is rate limiting us`);
+          throw new Error(`${m.name} blocked us`);
         }
         if (res.status !== 404) all404 = false;
         throw new Error(`${m.name} ${res.status}`);
@@ -172,7 +198,6 @@ export async function download(setId, onProgress = null) {
       if (buf.length < 1024) { all404 = false; throw new Error(`${m.name} sent ${buf.length} bytes`); }
       // zips start with PK
       if (buf[0] !== 0x50 || buf[1] !== 0x4b) { all404 = false; throw new Error(`${m.name} sent something that is not a zip`); }
-      rateLimited = false;                 // clearly working again
       return { mirror: m.name, buffer: buf };
     } catch (e) {
       if (e.name === 'AbortError') { all404 = false; errors.push(`${m.name} timed out`); }
