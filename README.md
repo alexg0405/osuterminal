@@ -156,6 +156,7 @@ node tools/slider-test.mjs   # runs every slider in your library through the pat
 node tools/origin-test.mjs   # cursor origin solver
 node tools/engine-spike.mjs  # audio clock
 node tools/render-bench.mjs  # frame timing
+node tools/select-test.mjs   # song select keys
 node tools/probe.mjs         # what your terminal supports
 node tools/mirror-test.mjs   # mirrors, needs internet
 ```
