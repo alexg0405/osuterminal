@@ -139,4 +139,4 @@ cfg.calibrationSpreadMs = Number(spread.toFixed(1));
 writeFileSync(CONFIG, JSON.stringify(cfg, null, 2) + '\n');
 
 console.log(`\n  saved to ${CONFIG}, the game picks this up automatically.`);
-console.log(`  override per-run with --offset <ms>\n`);
+console.log(`  saved to ${CONFIG}\n`);

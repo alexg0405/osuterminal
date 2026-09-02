@@ -30,12 +30,11 @@ From the GitHub repo instead of npm: `npm.cmd install -g alexg0405/osuterminal`.
 ## usage
 
 ```bash
-osuterminal --calibrate           # run this first
 osuterminal                       # song select
+osuterminal usesongs              # include your existing osu! Songs folder
 osuterminal "tower of heaven"     # skip straight to a map
 osuterminal "tower" -d 4          # pick difficulty 4
 osuterminal --download            # get more maps
-osuterminal usesongs              # include your existing osu! Songs folder
 osuterminal --keys df             # rebind tap keys
 osuterminal --list
 ```
@@ -74,21 +73,11 @@ osuterminal --search "nekodex"    # prints ids
 osuterminal --get 354366
 ```
 
-## calibration
+## timing
 
-Offset defaults to -15ms, which is what I measured on my machine two separate ways (the
-metronome said -13, an actual play through said -16.9). That should be close enough that
-you never think about it.
-
-If it feels off on your setup, `osuterminal --calibrate` plays a metronome, you tap along
-to what you hear, and it saves your own number to `~/.osuterminal.json`.
-
-Audio latency comes from the sound device, your headphones, the terminal, and your own
-reaction time. There's no way to calculate it, you have to measure it.
-
-One thing I did fix in code: mpg123 strips the LAME encoder delay when it decodes mp3s
-but osu's decoder doesn't, so maps end up ~13ms early and every hit reads as late.
-decode.mjs adds those samples back.
+mpg123 strips the LAME encoder delay when it decodes mp3s but osu's decoder doesn't,
+so maps would end up ~13ms early and every hit would read as late. decode.mjs adds
+those samples back. There is no extra audio offset to set.
 
 ## what works
 
