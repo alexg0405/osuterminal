@@ -80,21 +80,70 @@ export async function search(query, { mode = 0, limit = 50, status = null } = {}
   throw new Error(`every mirror failed. last error: ${lastErr?.message ?? 'unknown'}`);
 }
 
+// thrown when every mirror says 404. that means nobody hosts the file, which is
+// different from the network being broken, and the ui should say so differently.
+export class NotHostedError extends Error {
+  constructor(setId) {
+    super(`no mirror has set ${setId}`);
+    this.name = 'NotHostedError';
+    this.setId = setId;
+  }
+}
+
+// is this set downloadable at all? search comes from osu's metadata, so plenty of
+// results are not actually hosted anywhere.
+//
+// HEAD is no good here: catboy 404s on HEAD even for maps it has, and nerinyan just
+// returns 405. and a Range request does not help either, catboy ignores it and starts
+// sending the whole file. so start a normal GET, look at the status, and abort before
+// reading any of the body.
+// mirrors are asked in parallel, not one after another. going in sequence meant a fast
+// 404 from catboy still had to wait out a slow nerinyan, which took over ten seconds
+// and is far too slow to run off a highlight.
+export async function checkAvailable(setId, timeoutMs = 5000) {
+  const probe = async (m) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(m.download(setId), { signal: ctrl.signal, redirect: 'follow' });
+      const ok = res.ok && !/text\/html/i.test(res.headers.get('content-type') ?? '');
+      ctrl.abort();                       // tear it down, we only wanted the status
+      if (!ok) throw new Error('unavailable');
+      return m.name;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  try {
+    // first mirror to say yes wins; rejects only when every one of them fails
+    const mirror = await Promise.any(MIRRORS.map(probe));
+    return { available: true, mirror };
+  } catch {
+    return { available: false, mirror: null };
+  }
+}
+
 /**
  * download a beatmap set as a .osz buffer.
  * onProgress gets (bytesSoFar, totalBytesOrNull).
  */
 export async function download(setId, onProgress = null) {
-  let lastErr = null;
+  const errors = [];
+  let all404 = true;
+
   for (const m of MIRRORS) {
     try {
       const res = await fetchWithTimeout(m.download(setId), {}, 120000);
-      if (!res.ok) throw new Error(`${m.name} returned ${res.status}`);
+      if (!res.ok) {
+        if (res.status !== 404) all404 = false;
+        throw new Error(`${m.name} ${res.status}`);
+      }
 
       const total = Number(res.headers.get('content-length')) || null;
-      // some mirrors hand back an html error page with a 200, so sanity check the type
+      // some mirrors hand back an html error page with a 200, so check the type
       const type = res.headers.get('content-type') ?? '';
-      if (/text\/html/i.test(type)) throw new Error(`${m.name} returned html, not a beatmap`);
+      if (/text\/html/i.test(type)) { all404 = false; throw new Error(`${m.name} sent html, not a beatmap`); }
 
       const chunks = [];
       let got = 0;
@@ -104,13 +153,16 @@ export async function download(setId, onProgress = null) {
         if (onProgress) onProgress(got, total);
       }
       const buf = Buffer.concat(chunks);
-      if (buf.length < 1024) throw new Error(`${m.name} returned ${buf.length} bytes`);
+      if (buf.length < 1024) { all404 = false; throw new Error(`${m.name} sent ${buf.length} bytes`); }
       // zips start with PK
-      if (buf[0] !== 0x50 || buf[1] !== 0x4b) throw new Error(`${m.name} did not return a zip`);
+      if (buf[0] !== 0x50 || buf[1] !== 0x4b) { all404 = false; throw new Error(`${m.name} sent something that is not a zip`); }
       return { mirror: m.name, buffer: buf };
     } catch (e) {
-      lastErr = e;
+      if (e.name === 'AbortError') { all404 = false; errors.push(`${m.name} timed out`); }
+      else errors.push(e.message);
     }
   }
-  throw new Error(`could not download ${setId}. last error: ${lastErr?.message ?? 'unknown'}`);
+
+  if (all404) throw new NotHostedError(setId);
+  throw new Error(`could not download ${setId} (${errors.join(', ')})`);
 }
