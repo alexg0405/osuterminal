@@ -37,7 +37,16 @@ const SetCursorPos     = user32.func('bool __stdcall SetCursorPos(int x, int y)'
 const GetAsyncKeyState = user32.func('short __stdcall GetAsyncKeyState(int vKey)');
 const GetSystemMetrics = user32.func('int __stdcall GetSystemMetrics(int i)');
 
-export const VK = { LBUTTON: 0x01, RBUTTON: 0x02, Z: 0x5a, X: 0x58, ESCAPE: 0x1b, SPACE: 0x20 };
+export const VK = { LBUTTON: 0x01, RBUTTON: 0x02, ESCAPE: 0x1b, SPACE: 0x20 };
+
+// GetAsyncKeyState wants a virtual key code. for letters and digits that is just the
+// uppercase ascii value, which covers every key anyone sensibly binds to.
+function vkFor(ch) {
+  const c = ch.toUpperCase();
+  if (c.length !== 1) return null;
+  const code = c.charCodeAt(0);
+  return (code >= 0x30 && code <= 0x5a) ? code : null;
+}
 
 export class Input {
   #pt = {};
@@ -49,9 +58,12 @@ export class Input {
 
   // mode 'absolute' sticks to the real mouse, 'relative' integrates deltas.
   // sensitivity only does anything in relative mode.
-  constructor({ mode = 'absolute', sensitivity = 1.0 } = {}) {
+  constructor({ mode = 'absolute', sensitivity = 1.0, keys = ['z', 'x'] } = {}) {
     this.mode = mode;
     this.sensitivity = sensitivity;
+    // the two tap keys. lowercased so the lookup is a simple map hit.
+    this.keys = keys.map((k) => String(k).toLowerCase());
+    this.keyMap = new Map(this.keys.map((k, i) => [k, i === 0 ? 'k1' : 'k2']));
     this.screenW = GetSystemMetrics(0);
     this.screenH = GetSystemMetrics(1);
     this.geometry = { cellW: 10, cellH: 20, known: false };
@@ -145,8 +157,9 @@ export class Input {
 
     for (const ch of s) {
       const lower = ch.toLowerCase();
-      if (lower === 'z' || lower === 'x') {
-        const name = lower === 'z' ? 'k1' : 'k2';
+      const bound = this.keyMap.get(lower);
+      if (bound) {
+        const name = bound;
         if (!this.buttons[name]) {
           this.buttons[name] = true;
           this.#recomputeAnyDown();
@@ -222,7 +235,9 @@ export class Input {
     }
 
     // no key release events on this terminal so we have to poll for it
-    for (const [name, vk] of [['k1', VK.Z], ['k2', VK.X]]) {
+    for (const [name, ch] of [['k1', this.keys[0]], ['k2', this.keys[1]]]) {
+      const vk = vkFor(ch);
+      if (!vk) continue;
       const down = (GetAsyncKeyState(vk) & 0x8000) !== 0;
       if (this.buttons[name] && !down) {
         this.buttons[name] = false;
