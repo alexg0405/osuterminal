@@ -1,9 +1,34 @@
 {
   "name": "osuterminal",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
   "description": "osu!standard, playable in a terminal",
+  "license": "MIT",
+  "author": "Alexa Guo",
+  "bin": {
+    "osuterminal": "src/main.mjs"
+  },
+  "files": [
+    "src",
+    "tools/calibrate.mjs",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexg0405/osuterminal.git"
+  },
+  "homepage": "https://github.com/alexg0405/osuterminal#readme",
+  "bugs": {
+    "url": "https://github.com/alexg0405/osuterminal/issues"
+  },
+  "keywords": [
+    "osu",
+    "osu!",
+    "terminal",
+    "rhythm",
+    "cli",
+    "game"
+  ],
   "scripts": {
     "play": "node src/main.mjs",
     "probe": "node tools/probe.mjs",
@@ -22,13 +47,5 @@
     "fflate": "^0.8.3",
     "koffi": "^3.1.6",
     "mpg123-decoder": "^1.0.3"
-  },
-  "bin": {
-    "osuterminal": "src/main.mjs"
-  },
-  "files": [
-    "src",
-    "tools",
-    "README.md"
-  ]
+  }
 }
