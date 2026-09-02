@@ -182,7 +182,20 @@ async function main() {
 
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
-  if (process.argv.includes('--keys')) saveConfig({ keys: args.keys });
+
+  // --keys on its own is a settings command: save, say so, done. combined with anything
+  // else it just applies to that run as well.
+  if (process.argv.includes('--keys')) {
+    const raw = process.argv[process.argv.indexOf('--keys') + 1];
+    if (!parseKeys(raw)) {
+      throw new Error(`--keys needs exactly two characters, like  --keys df\nGot: ${raw ?? '(nothing)'}`);
+    }
+    saveConfig({ keys: args.keys });
+    console.log(`\ntap keys are now ${bold(args.keys[0])} and ${bold(args.keys[1])}` +
+      dim(`   saved to ${CONFIG}\n`));
+    // "--keys df" and nothing else means they only wanted to set the keys
+    if (process.argv.slice(2).length === 2) return;
+  }
 
   if (args.online) return printSearch(args.online);
   if (args.get) return getById(args.get, args.songs);
