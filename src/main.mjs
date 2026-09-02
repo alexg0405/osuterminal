@@ -29,6 +29,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // install keeps its calibration no matter where you run it from.
 const CONFIG = path.join(os.homedir(), '.osuterminal.json');
 
+// measured on my machine two different ways: the metronome said -13ms and a real play
+// through said -16.9ms. -15 splits it. calibration can still override this but you
+// should not have to touch it to get a playable feel out of the box.
+const DEFAULT_OFFSET_MS = -15;
+
 // where osu keeps beatmaps on each platform
 function defaultSongsDir() {
   if (process.platform === 'win32' && process.env.LOCALAPPDATA)
@@ -52,8 +57,9 @@ function parseArgs(argv, cfg) {
   const out = {
     terms: [], diff: null, list: false, calibrate: false, help: false,
     online: null, get: null, download: false,
-    offset: cfg.audioOffsetMs ?? 0,
+    offset: cfg.audioOffsetMs ?? DEFAULT_OFFSET_MS,
     sens: cfg.sensitivity ?? 1.0,
+    keys: cfg.keys ?? ['z', 'x'],
     aimMode: cfg.aimMode ?? 'absolute',
     songs: cfg.songsDir ?? defaultSongsDir(),
     offsetFromConfig: cfg.audioOffsetMs !== undefined,
@@ -66,6 +72,7 @@ function parseArgs(argv, cfg) {
     else if (a === '--relative') out.aimMode = 'relative';
     else if (a === '--absolute') out.aimMode = 'absolute';
     else if (a === '--songs') out.songs = argv[++i];
+    else if (a === '--keys') out.keys = parseKeys(argv[++i]) ?? out.keys;
     else if (a === '--list' || a === '-l') out.list = true;
     else if (a === '--calibrate' || a === '-c') out.calibrate = true;
     else if (a === '--help' || a === '-h') out.help = true;
@@ -75,6 +82,13 @@ function parseArgs(argv, cfg) {
     else out.terms.push(a);
   }
   return out;
+}
+
+// accepts "zx", "z,x" or "z x". has to come out as exactly two single characters.
+function parseKeys(raw) {
+  if (!raw) return null;
+  const k = String(raw).toLowerCase().replace(/[,\s]+/g, '').split('');
+  return k.length === 2 ? k : null;
 }
 
 const bold = (s) => `\x1b[1m${s}\x1b[0m`;
@@ -137,9 +151,10 @@ ${bold('osuterminal')}  osu!standard in your terminal
 
 ${bold('options')}
   -d, --diff <n>     difficulty index within the matched set
-      --offset <ms>  audio offset override
+      --keys <ab>    tap keys, default zx ${dim('(remembered)')}
       --relative     relative aim instead of absolute ${dim('(cursor stops tracking your mouse)')}
       --sens <n>     sensitivity, relative mode only
+      --offset <ms>  audio offset override ${dim('(default -15, you should not need this)')}
       --songs <dir>  beatmap folder ${dim('(remembered)')}
       --search <q>   search the mirrors and print results
       --get <id>     download a beatmap set by id
@@ -147,8 +162,8 @@ ${bold('options')}
   -h, --help         this
 
 ${bold('in game')}
-  z / x / mouse      hit          space  pause
-  + / -              nudge offset q      quit
+  z / x / mouse      hit
+  esc                pause, then r retry or q quit
 
 config: ${dim(CONFIG)}
 `);
@@ -167,6 +182,7 @@ async function main() {
 
   // remember the songs folder so you only have to pass it once
   if (process.argv.includes('--songs')) saveConfig({ songsDir: args.songs });
+  if (process.argv.includes('--keys')) saveConfig({ keys: args.keys });
 
   if (args.online) return printSearch(args.online);
   if (args.get) return getById(args.get, args.songs);
@@ -249,52 +265,40 @@ async function getById(id, songsDir) {
 
 async function play(chosen, args, cfg) {
   const d = chosen.difficulty;
-  console.log(bold(`\n${chosen.artist} - ${chosen.title}`));
-  console.log(`  [${chosen.diffName}] by ${chosen.creator}`);
-  console.log(dim(`  CS${d.cs} AR${d.ar} OD${d.od} HP${d.hp}  |  ${chosen.hitObjects.length} objects`));
-  console.log(dim(`  300: ±${d.windows.great.toFixed(0)}ms   100: ±${d.windows.ok.toFixed(0)}ms   50: ±${d.windows.meh.toFixed(0)}ms`));
+  console.log(bold(`\n${chosen.artist} - ${chosen.title}`) + dim(`  [${chosen.diffName}]`));
+  console.log(dim(`CS${d.cs} AR${d.ar} OD${d.od}  ${chosen.hitObjects.length} objects`));
 
   try { await access(chosen.audioPath); }
   catch { throw new Error(`Audio file missing:\n  ${chosen.audioPath}`); }
 
-  process.stdout.write('\n  decoding audio... ');
-  const t0 = Date.now();
+  process.stdout.write(dim('loading... '));
   const audio = await decodeAudio(chosen.audioPath);
-  console.log(`${(audio.durationMs / 1000).toFixed(0)}s @ ${audio.sampleRate}Hz ${audio.channels}ch (${Date.now() - t0}ms)`);
 
   if (!stdout.isTTY) throw new Error('Not a TTY. Run this directly in a terminal.');
   if (stdout.columns < 60 || stdout.rows < 20)
     throw new Error(`Terminal too small: ${stdout.columns}x${stdout.rows} (need at least 60x20).`);
 
-  if (args.offsetFromConfig)
-    console.log(dim(`\n  audio offset ${args.offset >= 0 ? '+' : ''}${args.offset}ms (calibrated ${cfg.calibratedAt?.slice(0, 10) ?? ''})`));
-  else if (args.offset !== 0)
-    console.log(dim(`\n  audio offset ${args.offset >= 0 ? '+' : ''}${args.offset}ms (--offset)`));
-  else
-    console.log(`\n  \x1b[33mno calibration\x1b[0m${dim(' - if timing feels off, run  osuterminal --calibrate')}`);
-
-  console.log(dim(`  aim: ${args.aimMode}${args.aimMode === 'relative'
-    ? ` (sens ${args.sens})` : ' - cursor tracks your mouse'}`));
-  console.log(dim('\n  z / x / mouse buttons to hit    space pause    +/- offset    q quit'));
-  await new Promise((r) => setTimeout(r, 1200));
-
-  const game = new Game(chosen, { audioOffsetMs: args.offset, sensitivity: args.sens, aimMode: args.aimMode });
-
-  process.stdout.write('  loading hitsounds... ');
-  const h0 = Date.now();
+  const game = new Game(chosen, {
+    audioOffsetMs: args.offset, sensitivity: args.sens, aimMode: args.aimMode, keys: args.keys,
+  });
   await game.prepareAudio(audio.sampleRate);
-  const hs = game.hitsoundStats;
-  console.log(`${hs.loaded} from map, ${hs.synthesized} synthesized (${Date.now() - h0}ms)`);
+  console.log(dim(`${args.keys[0]} / ${args.keys[1]} / mouse to hit   esc pause`));
+  await new Promise((r) => setTimeout(r, 700));
 
-  const result = await game.run(audio);
+  // retry from the pause screen just replays the same map
+  for (;;) {
+    const result = await game.run(audio);
+    if (!result.restart) return printResult(result);
+    game.reset();
+  }
+}
 
+function printResult(result) {
   const c = result.counts;
-  console.log(bold(`\n  ${result.rank}  ${(result.accuracy * 100).toFixed(2)}%`));
-  console.log(`  score ${result.score}   max combo ${result.maxCombo}x`);
-  console.log(`  300:${c.GREAT}  100:${c.OK}  50:${c.MEH}  miss:${c.MISS}`);
-  console.log(dim(`  mean timing error ${result.meanError >= 0 ? '+' : ''}${result.meanError.toFixed(1)}ms ` +
-    `${Math.abs(result.meanError) > 8 ? `- try --offset ${Math.round(args.offset + result.meanError)}` : ''}`));
-  console.log();
+  const err = `${result.meanError >= 0 ? '+' : ''}${result.meanError.toFixed(0)}ms`;
+  console.log(bold(`\n${result.rank}  ${(result.accuracy * 100).toFixed(2)}%`) +
+    dim(`   ${result.score}   ${result.maxCombo}x`));
+  console.log(dim(`300:${c.GREAT}  100:${c.OK}  50:${c.MEH}  miss:${c.MISS}   ${err}\n`));
 }
 
 main().catch((e) => { console.error(`\n\x1b[31m${e.message}\x1b[0m\n`); process.exit(1); });
