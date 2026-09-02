@@ -8,14 +8,15 @@
 //
 // entries can do search, download, or both. sayobot is download only since its search
 // api is a different format and we do not need it.
+// catboy is deliberately not in here. it banned this ip after i scanned a page of
+// results too fast, and leaving it in just burns a request per search getting 403'd.
+// if the ban ever lifts, put it back at the top, its search is the best of the bunch:
+//
+//   { name: 'catboy',
+//     search: (q, o) => `https://catboy.best/api/v2/search?query=${encodeURIComponent(q)}`
+//                     + `&mode=${o.mode}&limit=${o.limit}`,
+//     download: (id) => `https://catboy.best/d/${id}` },
 const MIRRORS = [
-  {
-    name: 'catboy',
-    search: (q, o) =>
-      `https://catboy.best/api/v2/search?query=${encodeURIComponent(q)}` +
-      `&mode=${o.mode}&limit=${o.limit}` + (o.status ? `&status=${o.status}` : ''),
-    download: (id) => `https://catboy.best/d/${id}`,
-  },
   {
     name: 'osu.direct',
     search: (q, o) =>
