@@ -35,14 +35,46 @@ console.log('\n=== availability ===');
   let t = Date.now();
   const a = await checkAvailable(HOSTED);
   const tHosted = Date.now() - t;
-  check(a.available === true, `hosted set reports available (via ${a.mirror}, ${tHosted}ms)`);
+  check(a.status === 'yes', `hosted set reports available (via ${a.mirror}, ${tHosted}ms)`);
   check(tHosted < 4000, `hosted answer is quick enough for a ui (${tHosted}ms)`);
 
   t = Date.now();
   const b = await checkAvailable(NOT_HOSTED);
   const tMissing = Date.now() - t;
-  check(b.available === false, `unhosted set reports unavailable (${tMissing}ms)`);
+  check(b.status === 'no', `unhosted set reports unavailable (${tMissing}ms)`);
   check(tMissing < 7000, `unhosted answer still bounded by the timeout (${tMissing}ms)`);
+}
+
+console.log('\n=== bulk availability scan ===');
+{
+  const { results } = await search('harumachi clover', { limit: 30 });
+  check(results.length > 10, `enough results to be worth scanning (${results.length})`);
+
+  let firstAt = null;
+  const t = Date.now();
+  const map = await checkManyAvailable(results.map((r) => r.id), {
+    onResult: () => { if (firstAt === null) firstAt = Date.now() - t; },
+  });
+  const total = Date.now() - t;
+  const dead = [...map.values()].filter((v) => v === false).length;
+  console.log(`  ${map.size} sets in ${total}ms, first mark after ${firstAt}ms, ${dead} unavailable`);
+
+  check(map.size === results.length, `every result got a verdict (${map.size}/${results.length})`);
+  check(firstAt !== null && firstAt < 2000, `first mark lands quickly (${firstAt}ms)`);
+  check(total < 15000, `whole page scanned in reasonable time (${total}ms)`);
+  check(dead > 0, `the scan actually finds unhosted sets (${dead})`);
+  check(map.get(NOT_HOSTED) === false, 'the set that failed by hand is flagged unavailable');
+  check(map.get(557118) === true, 'a sibling set that IS hosted is not flagged');
+
+  // aborting has to actually stop the workers, otherwise a new search races the old scan
+  const ac = new AbortController();
+  let seen = 0;
+  const t2 = Date.now();
+  const p = checkManyAvailable(results.map((r) => r.id), { signal: ac.signal, onResult: () => { seen++; } });
+  setTimeout(() => ac.abort(), 400);
+  await p;
+  check(seen < results.length, `abort stops the scan early (${seen}/${results.length} checked)`);
+  check(Date.now() - t2 < 4000, 'abort returns promptly');
 }
 
 console.log('\n=== download ===');

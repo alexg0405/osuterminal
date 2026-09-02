@@ -351,5 +351,59 @@ console.log('\n=== osz extraction ===');
   await rm(tmp, { recursive: true, force: true });
 }
 
+// ---------------------------------------------------------------- availability logic
+// mocked fetch so this stays offline. the point is the status handling: a 403 must not
+// be mistaken for "not hosted", which is the bug that made a whole page look dead.
+console.log('\n=== availability status handling ===');
+{
+  const { checkAvailable, isRateLimited, clearRateLimit } = await import('../src/net/mirror.mjs');
+
+  const fakeFetch = (status, type = 'application/x-osu-beatmap-archive') => async () => ({
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (k) => (k.toLowerCase() === 'content-type' ? type : null) },
+  });
+
+  clearRateLimit();
+  check((await checkAvailable(1, { fetchImpl: fakeFetch(200) })).status === 'yes', '200 means hosted');
+
+  clearRateLimit();
+  check((await checkAvailable(1, { fetchImpl: fakeFetch(404) })).status === 'no', '404 from every mirror means not hosted');
+
+  clearRateLimit();
+  const limited = await checkAvailable(1, { fetchImpl: fakeFetch(403) });
+  check(limited.status === 'unknown', '403 is unknown, NOT "not hosted"');
+  check(isRateLimited() === true, '403 trips the rate limit flag');
+  check((await checkAvailable(2, { fetchImpl: fakeFetch(404) })).status === 'unknown',
+        'once rate limited it stops asking and answers unknown');
+
+  clearRateLimit();
+  check(isRateLimited() === false, 'the flag can be cleared');
+  check((await checkAvailable(1, { fetchImpl: fakeFetch(429) })).status === 'unknown', '429 is unknown too');
+
+  clearRateLimit();
+  check((await checkAvailable(1, { fetchImpl: fakeFetch(500) })).status === 'unknown', '500 is unknown');
+
+  clearRateLimit();
+  check((await checkAvailable(1, { fetchImpl: fakeFetch(200, 'text/html') })).status === 'unknown',
+        'a 200 that is actually an html error page is not treated as hosted');
+
+  clearRateLimit();
+  const boom = async () => { throw new Error('network down'); };
+  check((await checkAvailable(1, { fetchImpl: boom })).status === 'unknown', 'a network error is unknown, not missing');
+
+  // one mirror 404s, the other has it
+  clearRateLimit();
+  let call = 0;
+  const mixed = async () => {
+    call++;
+    const status = call === 1 ? 404 : 200;
+    return { status, ok: status === 200, headers: { get: () => 'application/zip' } };
+  };
+  check((await checkAvailable(1, { fetchImpl: mixed })).status === 'yes',
+        'one mirror missing it but another having it still counts as hosted');
+  clearRateLimit();
+}
+
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
 process.exit(failures ? 1 : 0);
