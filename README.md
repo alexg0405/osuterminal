@@ -28,16 +28,16 @@ Then:
 osuterminal.cmd
 ```
 
-PowerShell's default execution policy blocks `.ps1` shims, including the `npm` and
+The one-liner prints **Type osuterminal to start**. PowerShell's default execution policy blocks `.ps1` shims, including the `npm` and
 `osuterminal` names Node installs. The bootstrap always uses `.cmd`, and so should you.
 
 If you already have Node 20+:
 
 ```bash
-npm.cmd install -g osuterminal or npm install -g osuterminal
+npm.cmd install -g osuterminal
 ```
 
-When that finishes it prints **Type osuterminal to start**. If PowerShell blocks the
+or `npm install -g osuterminal`. Then type **osuterminal** to start. If PowerShell blocks the
 name, use `osuterminal.cmd`. `npx.cmd --yes osuterminal` also works without a global
 install.
 
