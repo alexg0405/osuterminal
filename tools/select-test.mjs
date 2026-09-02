@@ -97,6 +97,29 @@ key('\x1b');
 const result = await pending;
 check(result === null, 'esc in browse mode quits');
 
+// backslash toggles the field: close keeps the filter, w/s move, backslash edits again
+{
+  const pToggle = selectSong(maps);
+  key('\\');
+  key('g'); key('a');
+  check(shows('typing a filter'), 'backslash opens the field');
+  check(text().includes('Gamma') && !text().includes('Beta'), 'typing filters the list');
+  key('\\');
+  check(shows('w/s song'), 'backslash closes the field without clearing it');
+  check(!shows('typing a filter'), 'not in the text field');
+  check(text().includes('Gamma') && !text().includes('Beta'), 'filter is still applied');
+  key('s');
+  check(!text().includes('\\gas') && !text().includes('\\gaS'), 's moves instead of appending to the filter');
+  check(text().includes('Gamma'), 'filtered list is unchanged by w/s');
+  key('\\');
+  check(shows('typing a filter'), 'backslash opens the field again');
+  check(text().includes('\\ga_') || /\x1b.*\\ga/.test(frame), 'previous text is still in the field');
+  key('\x1b');
+  key('\x1b');
+  const r = await pToggle;
+  check(r === null, 'esc still quits after toggling search');
+}
+
 // a second run to check enter returns a map, and tab asks for the downloader
 {
   const p2 = selectSong(maps);

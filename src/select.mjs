@@ -3,7 +3,8 @@
 // sets on the left, difficulties of the highlighted set on the right.
 //
 // two modes. browsing is the default: w/s or up/down move between songs, a/d or
-// left/right pick a difficulty. backslash (or slash) filters the list; tab opens
+// left/right pick a difficulty. backslash (or slash) opens a filter; backslash
+// again closes it so w/s move the list, without clearing the text. tab opens
 // the online downloader. the list scrolls — header shows which slice you are on.
 //
 // this uses plain ANSI instead of the framebuffer because it's all text, and text
@@ -60,7 +61,7 @@ export function selectSong(maps) {
     let filtered = sets;
     let setIdx = 0, diffIdx = 0, scroll = 0;
     let done = false;
-    let searching = false;    // backslash opens the search, esc or enter closes it
+    let searching = false;    // backslash toggles the filter field; the text stays
 
     const refilter = () => {
       const q = query.toLowerCase();
@@ -95,7 +96,7 @@ export function selectSong(maps) {
       if (filtered.length) out.push(`${DIM}   ${above}${from}-${to}${RESET}${more}`);
       out.push('\r\n');
       out.push(searching ? `   ${ACCENT}\\${query}_${RESET}`
-        : query ? `   ${ACCENT}\\${query}${RESET}${DIM} (backspace clears)${RESET}`
+        : query ? `   ${ACCENT}\\${query}${RESET}${DIM}  \\ to edit   backspace clears${RESET}`
         : `   ${DIM}\\ to search this list   tab to download more${RESET}`);
       out.push('\r\n');
 
@@ -135,7 +136,7 @@ export function selectSong(maps) {
         out.push(`  ${DIM}no matches${RESET}\r\n`);
       }
       out.push(searching
-        ? `  ${DIM}typing a filter   enter or esc to stop${RESET}`
+        ? `  ${DIM}typing a filter   \\ done   then w/s move   esc also stops${RESET}`
         : `  ${DIM}w/s song   enter play   \\ search   tab download   esc quit${RESET}`);
       stdout.write(out.join(''));
     };
@@ -177,6 +178,8 @@ export function selectSong(maps) {
       // ---- typing a search ----
       // held separately from browsing so w/s can be movement keys rather than text
       if (searching) {
+        // backslash (and slash) leave the field. the filter stays so w/s move again.
+        if (s === '\\' || s === '/') { searching = false; return draw(); }
         if (s === '\x1b') { searching = false; return draw(); }
         if (s === '\r' || s === '\n') { searching = false; return draw(); }
         if (s === '\x7f' || s === '\b') { query = query.slice(0, -1); refilter(); return draw(); }
