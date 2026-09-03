@@ -1,6 +1,7 @@
 // in-game HUD: hit-error bar, 300/100/50/X legend, live grade.
 // kept free of Win32 so the colours and layout can be tested on Linux.
 import { rankFromCounts, rankColour } from '../grade.mjs';
+import { drawRankLetter, liveRankPixelSize, rankLetters, LETTER_W, LETTER_H, LETTER_GAP } from './rank.mjs';
 
 export const JUDGE = {
   GREAT: { score: 300, colour: [90, 200, 255], hex: 0x5ac8ff, label: '300' },
@@ -33,13 +34,29 @@ export function judgementLegend(counts) {
   return { parts, str, swatch: SWATCH };
 }
 
-// live grade in the top-right. SS until the first drop, same table as results.
-export function drawLiveRank(fb, counts, row = 1) {
+// live grade as a pixel letter in the top-right, same glyphs as results.
+// a single terminal character was too small to read as a grade.
+export function drawLiveRank(fb, counts) {
   const rank = rankFromCounts(counts);
-  const { hex } = rankColour(rank);
-  const col = Math.max(0, fb.cols - rank.length - 1);
-  fb.text(col, row, rank, hex);
-  return { rank, col, row, hex };
+  const { hex, rgb } = rankColour(rank);
+  const ps = liveRankPixelSize(fb.rows);
+  const n = rankLetters(rank).length;
+  const gw = n * LETTER_W + (n - 1) * LETTER_GAP;
+  const w = gw * ps, h = LETTER_H * ps;
+  const x0 = Math.max(0, fb.width - w - 2);
+  const y0 = 3;
+  const cx = x0 + w / 2, cy = y0 + h / 2;
+
+  const r0 = Math.max(0, Math.floor(y0 / 2));
+  const r1 = Math.min(fb.rows - 1, Math.floor((y0 + h - 1) / 2));
+  const c0 = Math.max(0, x0);
+  const c1 = Math.min(fb.cols - 1, x0 + w - 1);
+  for (let row = r0; row <= r1; row++) {
+    for (let col = c0; col <= c1; col++) fb.txtChar[row * fb.cols + col] = 0;
+  }
+
+  const box = drawRankLetter(fb, rank, cx, cy, ps, { glow: false });
+  return { rank, hex, rgb, ps, ...box };
 }
 
 export function drawJudgementLegend(fb, counts, row) {

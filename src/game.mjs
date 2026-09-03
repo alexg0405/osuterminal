@@ -616,7 +616,7 @@ export class Game {
     fb.text(1, 0, title.slice(0, fb.cols - 24), 0x9aa4b8);
     const right = `${String(this.score).padStart(8, '0')}   ${acc}%`;
     fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
-    drawLiveRank(fb, c, 1);
+    drawLiveRank(fb, c);
 
     const help = 'esc pause';
     fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
