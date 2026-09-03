@@ -12,6 +12,7 @@ import { applyStacking } from './core/stack.mjs';
 import { drawHitCircle, drawApproachCircle, comboVisible } from './render/hitcircle.mjs';
 import { drawFollowPoints } from './render/followpoint.mjs';
 import { drawReverseArrow } from './render/arrow.mjs';
+import { drawSliderBody, sampleSliderScreen } from './render/sliderbody.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains, hitsoundSampleGain } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
@@ -568,22 +569,11 @@ export class Game {
     // stamp discs along the path. spacing is based on the radius so the body stays
     // solid without doing one disc per pixel, which would be way too slow on long ones.
     if (alpha > 0) {
-      const step = Math.max(1.2, rad / 2.5);
-      const n = Math.max(2, Math.ceil(pf.len(path.length) / step));
-      const bodyA = alpha * 0.5;
-
-      for (let i = 0; i <= n; i++) {
-        const p = path.positionAt(i / n);
-        fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.92, cr * 0.22, cg * 0.22, cb * 0.22, bodyA);
-      }
-      for (let i = 0; i <= n; i++) {
-        const p = path.positionAt(i / n);
-        fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.34, cr * 0.55, cg * 0.55, cb * 0.55, bodyA);
-      }
+      drawSliderBody(fb, sampleSliderScreen(path, pf, rad), rad, [cr, cg, cb], alpha);
 
       // tail marker
       const tail = path.positionAt(o.slides % 2 === 1 ? 1 : 0);
-      fb.strokeCircle(pf.sx(tail.x), pf.sy(tail.y), rad * 0.8, 1.2, cr, cg, cb, alpha * 0.7);
+      fb.strokeCircle(pf.sx(tail.x), pf.sy(tail.y), rad * 0.8, 1.6, cr, cg, cb, alpha * 0.85);
 
       // pending ticks
       for (let i = o.nextTick; i < o.ticks.length; i++) {
