@@ -6,6 +6,7 @@ import {
   JUDGE, judgementLegend, judgementColour, drawJudgementLegend, drawHitErrorBar,
   ERROR_TICK_FADE_MS, errorTickAlpha, meanError, drawLiveRank,
 } from '../src/render/hud.mjs';
+import { liveRankPixelSize } from '../src/render/rank.mjs';
 import { rankColour } from '../src/grade.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
@@ -130,22 +131,44 @@ console.log('\n=== hit error ticks fade ===');
 
 console.log('\n=== live rank ===');
 {
+  check(liveRankPixelSize(24) === 3, '24-row terminals get a 3px grade letter');
+  check(liveRankPixelSize(40) === 4, 'taller terminals get a 4px grade letter');
+  check(liveRankPixelSize(24) > hudComboPixelSize(24),
+    'the live grade is larger than the HUD combo');
+
   const fb = new Framebuffer(80, 24);
   fb.clear(8, 8, 14);
   const ss = drawLiveRank(fb, { GREAT: 0, OK: 0, MEH: 0, MISS: 0 });
-  check(ss.rank === 'SS' && ss.row === 0, 'starts as SS on the top row');
-  check(ss.col === 80 - 2 - 1, 'SS is right-aligned');
-  check(fb.txtChar[ss.col] === 'S' && fb.txtChar[ss.col + 1] === 'S', 'SS glyphs are drawn');
-  check(fb.txtFg[ss.col] === rankColour('SS').hex, 'SS is gold');
+  check(ss.rank === 'SS', 'starts as SS');
+  check(ss.ps === 3, 'SS is drawn as a 3px pixel letter, not a text cell');
+  check(ss.w === 33 && ss.h === 21, 'SS at 3px is 33×21 (two 5×7 glyphs)');
+  check(ss.x0 + ss.w >= fb.width - 4, 'SS sits in the top-right');
+  check(ss.y0 <= 4, 'SS starts under the title row');
+
+  let gold = 0;
+  for (let y = ss.y0; y < ss.y0 + ss.h; y++) {
+    for (let x = ss.x0; x < ss.x0 + ss.w; x++) {
+      const i = (y * fb.width + x) * 3;
+      if (fb.px[i] > 200 && fb.px[i + 1] > 180 && fb.px[i + 2] < 120) gold++;
+    }
+  }
+  check(gold > 80, `gold SS ink is present (${gold} px)`);
 
   const a = drawLiveRank(fb, { GREAT: 85, OK: 15, MEH: 0, MISS: 0 });
   check(a.rank === 'A', '85% 300s FC is A live');
-  check(a.col === 80 - 1 - 1, 'A is one column in from the right edge');
-  check(fb.txtChar[a.col] === 'A', 'A sits in the top-right');
-  check(fb.txtFg[a.col] === rankColour('A').hex, 'A is green');
+  check(a.w === 15 && a.h === 21, 'A at 3px is 15×21');
+  let green = 0;
+  for (let y = a.y0; y < a.y0 + a.h; y++) {
+    for (let x = a.x0; x < a.x0 + a.w; x++) {
+      const i = (y * fb.width + x) * 3;
+      if (fb.px[i] < 140 && fb.px[i + 1] > 200 && fb.px[i + 2] < 140) green++;
+    }
+  }
+  check(green > 30, `green A ink is present (${green} px)`);
+  check(a.hex === rankColour('A').hex, 'A uses the results-screen green');
 
   const d = drawLiveRank(fb, { GREAT: 10, OK: 10, MEH: 10, MISS: 70 });
-  check(d.rank === 'D' && fb.txtFg[d.col] === rankColour('D').hex, 'D is red');
+  check(d.rank === 'D' && d.hex === rankColour('D').hex, 'D is red');
 }
 
 console.log('\n=== HUD combo ===');

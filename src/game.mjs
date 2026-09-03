@@ -613,11 +613,10 @@ export class Game {
     const title = modsTag
       ? `${m.artist} - ${m.title} [${m.diffName}] +${modsTag}`
       : `${m.artist} - ${m.title} [${m.diffName}]`;
-    const live = drawLiveRank(fb, c, 0);
+    fb.text(1, 0, title.slice(0, fb.cols - 24), 0x9aa4b8);
     const right = `${String(this.score).padStart(8, '0')}   ${acc}%`;
-    const scoreCol = Math.max(0, live.col - right.length - 2);
-    fb.text(scoreCol, 0, right, 0xffffff);
-    fb.text(1, 0, title.slice(0, Math.max(8, scoreCol - 2)), 0x9aa4b8);
+    fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
+    drawLiveRank(fb, c);
 
     const help = 'esc pause';
     fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
