@@ -4,6 +4,7 @@ import { Difficulty, hitWindows } from '../src/core/beatmap.mjs';
 import { Framebuffer } from '../src/render/framebuffer.mjs';
 import {
   JUDGE, judgementLegend, judgementColour, drawJudgementLegend, drawHitErrorBar,
+  ERROR_TICK_FADE_MS, errorTickAlpha, meanError,
 } from '../src/render/hud.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
@@ -91,6 +92,38 @@ console.log('\n=== hit error bar zones ===');
   drawHitErrorBar(fb, [0], w);
   const hit = pix(x0 + (barW >> 1));
   check(hit[2] > 180 && hit[0] < 150, 'a perfect hit paints a blue tick on the centre');
+}
+
+console.log('\n=== hit error ticks fade ===');
+{
+  const w = hitWindows(5);
+  check(errorTickAlpha(0, 9999) === 1, 'a bare number is always live');
+  check(errorTickAlpha({ dt: 0, at: 1000 }, 1000) === 1, 'a fresh tick is fully opaque');
+  check(errorTickAlpha({ dt: 0, at: 0 }, ERROR_TICK_FADE_MS) === 0, 'a tick older than the fade window is gone');
+  check(errorTickAlpha({ dt: 0, at: 0 }, ERROR_TICK_FADE_MS / 2) === 0.5, 'halfway through the fade is half alpha');
+  check(meanError([{ dt: -10, at: 0 }, { dt: 10, at: 1 }]) === 0, 'meanError uses dt, not timestamps');
+  check(meanError([4, 8]) === 6, 'meanError still accepts bare numbers');
+
+  const fb = new Framebuffer(80, 24);
+  fb.clear(8, 8, 14);
+  const empty = drawHitErrorBar(fb, [], w);
+  const pix = (x) => {
+    const i = (empty.y * fb.width + x) * 3;
+    return [fb.px[i], fb.px[i + 1], fb.px[i + 2]];
+  };
+  const mid = empty.x0 + (empty.barW >> 1);
+  const rest = pix(mid);
+
+  fb.clear(8, 8, 14);
+  drawHitErrorBar(fb, [{ dt: 0, at: 0 }], w, 0);
+  const fresh = pix(mid);
+  check(fresh[2] > rest[2] && fresh[0] < rest[0], 'a fresh centre hit is bluer than the track');
+
+  fb.clear(8, 8, 14);
+  drawHitErrorBar(fb, [{ dt: 0, at: 0 }], w, ERROR_TICK_FADE_MS + 50);
+  const expired = pix(mid);
+  check(expired[0] === rest[0] && expired[1] === rest[1] && expired[2] === rest[2],
+    'an expired tick leaves the track untouched');
 }
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);

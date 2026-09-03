@@ -12,7 +12,7 @@ import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
-import { JUDGE, drawJudgementLegend, drawHitErrorBar } from './render/hud.mjs';
+import { JUDGE, drawJudgementLegend, drawHitErrorBar, meanError } from './render/hud.mjs';
 import {
   normalizeMods, applyModsToDifficulty, flipY, modsAcronyms, modsLabel, scoreMultiplier,
   objectAlpha, approachAlpha,
@@ -197,8 +197,7 @@ export class Game {
     else {
       this.#addCombo(o.kind === 'slider' ? 30 : JUDGE[kind].score);
       this.#playHitsound(o);
-      this.errors.push(dt);
-      if (this.errors.length > 48) this.errors.shift();
+      this.errors.push({ dt, at: this.time });
     }
 
     // circles finish right away, sliders stay live until the tail
@@ -613,7 +612,7 @@ export class Game {
     // coloured squares sit on the row under the error bar so 300/100/50/X
     // match the ticks above instead of being a grey blob of numbers.
     drawJudgementLegend(fb, c, fb.rows - 2);
-    drawHitErrorBar(fb, this.errors, this.diff.windows);
+    drawHitErrorBar(fb, this.errors, this.diff.windows, this.time);
 
     const filled = Math.round(this.progress * fb.cols);
     for (let x = 0; x < fb.cols; x++) {
@@ -658,7 +657,7 @@ export class Game {
     return {
       score: this.score, maxCombo: this.maxCombo, accuracy: this.accuracy,
       counts: { ...c },
-      meanError: this.errors.length ? this.errors.reduce((a, b) => a + b, 0) / this.errors.length : 0,
+      meanError: meanError(this.errors),
       rank: rankFromCounts(c),
       mods: modsAcronyms(this.mods),
     };
