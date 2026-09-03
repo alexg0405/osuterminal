@@ -224,15 +224,35 @@ export function sliderTicks(path, timing, hitObject) {
   return ticks;
 }
 
-// reverse arrows, one per span boundary but not the actual end
+// reverse arrows, one per span boundary but not the actual end.
+// atEnd means the bounce is at progress 1; after it you travel back toward 0.
 export function sliderRepeats(path, timing, hitObject) {
   const out = [];
   for (let span = 1; span < hitObject.slides; span++) {
     const atEnd = span % 2 === 1;
     out.push({
       time: hitObject.time + span * timing.spanDuration,
+      atEnd,
       ...path.positionAt(atEnd ? 1 : 0),
     });
   }
   return out;
+}
+
+// unit-ish vector the reverse arrow should point: the direction the ball will
+// travel after this bounce. a zero-length path falls back to left/right.
+export function reverseDirection(path, atEnd) {
+  const from = atEnd ? 1 : 0;
+  const toward = atEnd ? 0.88 : 0.12;
+  const a = path.positionAt(from);
+  let b = path.positionAt(toward);
+  let dx = b.x - a.x, dy = b.y - a.y;
+  if (dx * dx + dy * dy < 1e-8) {
+    b = path.positionAt(atEnd ? 0 : 1);
+    dx = b.x - a.x;
+    dy = b.y - a.y;
+  }
+  const len = Math.hypot(dx, dy);
+  if (!(len > 0)) return { dx: atEnd ? -1 : 1, dy: 0 };
+  return { dx: dx / len, dy: dy / len };
 }

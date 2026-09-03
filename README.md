@@ -211,6 +211,7 @@ src/audio/waveout.mjs      simple player, only calibration uses it
 src/render/framebuffer.mjs half block framebuffer
 src/render/playfield.mjs   512x384 onto the terminal, HUD insets
 src/render/hitcircle.mjs   rings so overlapping notes stay countable
+src/render/arrow.mjs       slider reverse chevrons
 src/render/background.mjs  beatmap jpg/png, cover-crop, dim
 src/input/input.mjs        the input split described above
 src/volume.mjs             master / music / hitsound sliders
@@ -243,6 +244,7 @@ node tools/playfield-test.mjs # notes stay on screen vertically
 node tools/volume-test.mjs   # volume clamp / step / mix
 node tools/background-test.mjs # beatmap bg parse + pixelate
 node tools/mods-test.mjs     # Hidden / Hard Rock math
+node tools/arrow-test.mjs    # slider reverse chevrons
 node tools/install-test.mjs  # bootstrap script + LEGAL.md checks
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo

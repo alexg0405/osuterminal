@@ -6,9 +6,10 @@ import { Playfield } from './render/playfield.mjs';
 import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
-import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
+import { SliderPath, sliderTiming, sliderTicks, sliderRepeats, reverseDirection } from './core/slider.mjs';
 import { applyStacking } from './core/stack.mjs';
 import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
+import { drawReverseArrow } from './render/arrow.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
@@ -557,18 +558,21 @@ export class Game {
       const tail = path.positionAt(o.slides % 2 === 1 ? 1 : 0);
       fb.strokeCircle(pf.sx(tail.x), pf.sy(tail.y), rad * 0.8, 1.2, cr, cg, cb, alpha * 0.7);
 
-      // pending repeat arrows
-      for (let i = o.nextRepeat; i < o.repeats.length; i++) {
-        const r = o.repeats[i];
-        fb.strokeCircle(pf.sx(r.x), pf.sy(r.y), rad * 0.5, 1.4, 255, 255, 255, alpha * 0.8);
-        break;   // only draw the next one, same as osu
-      }
-
       // pending ticks
       for (let i = o.nextTick; i < o.ticks.length; i++) {
         const tk = o.ticks[i];
         if (tk.time - this.time > this.diff.preempt) break;
         fb.fillCircle(pf.sx(tk.x), pf.sy(tk.y), Math.max(1, rad * 0.13), 255, 255, 255, alpha * 0.75);
+      }
+
+      // pending reverse arrows on top. they point the way the ball goes after the bounce.
+      for (let i = o.nextRepeat; i < o.repeats.length; i++) {
+        const rp = o.repeats[i];
+        const dir = reverseDirection(path, rp.atEnd);
+        drawReverseArrow(
+          fb, pf.sx(rp.x), pf.sy(rp.y), dir.dx, dir.dy,
+          Math.max(5, rad * 0.95), 255, 255, 255, alpha * 0.95,
+        );
       }
     }
 
