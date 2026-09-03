@@ -7,9 +7,11 @@
 //             not in time, so once a frame is fine
 //   clicks -> VT stdin. SGR mouse gives press ('M') and release ('m') separately and
 //             it's event driven so we can timestamp it properly. this is the part
-//             that actually has to be accurate, so no polling it
+//             that actually has to be accurate. GetAsyncKeyState is the fallback
+//             when stdin dies (click-to-focus mark mode).
 //   keys   -> VT stdin for the press, GetAsyncKeyState to see if it's still held.
-//             the held check is only for slider holds so frame rate is good enough
+//             esc/space/z/x also poll GetAsyncKeyState so a dead stdin cannot
+//             trap you in a map.
 //
 // so nothing that needs tight timing gets polled, and nothing that needs pixel
 // accuracy goes through the terminal.
@@ -34,8 +36,8 @@
 
 import koffi from 'koffi';
 import { stdin, stdout } from 'node:process';
-import { leftoverKeys, focusAfterChunk, mouseWarpEnabled } from './vt.mjs';
-import { emptyOrigin, observeOrigin } from './origin.mjs';
+import { leftoverKeys, focusedAfterInput, applyButton, vkEdge, mouseWarpEnabled } from './vt.mjs';
+import { emptyOrigin, observeOrigin, pixelInTerminal, shouldKeepOriginOnFocus } from './origin.mjs';
 
 const CSI = '\x1b[';
 const nowMs = () => Number(process.hrtime.bigint()) / 1e6;
@@ -67,6 +69,8 @@ export class Input {
   #origin = emptyOrigin();
   #savedConsoleMode = null;
   #k32 = null;
+  #held = { esc: false, space: false, m1: false, m2: false };
+  #ignoreMouseUntilUp = false;
 
   // mode 'absolute' sticks to the real mouse, 'relative' integrates deltas.
   // sensitivity only does anything in relative mode.
@@ -149,7 +153,9 @@ export class Input {
 
     const mouse = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
     let m;
+    let sawMouse = false;
     while ((m = mouse.exec(s))) {
+      sawMouse = true;
       const code = Number(m[1]);
       const col = Number(m[2]), row = Number(m[3]);
 
@@ -161,39 +167,75 @@ export class Input {
       const name = btn === 0 ? 'm1' : btn === 2 ? 'm2' : null;
       if (!name) continue;
       const press = m[4] === 'M';
-      this.buttons[name] = press;
-      this.#recomputeAnyDown();
-      this.#emit(press ? 'hit' : 'release', { at, source: name, x: this.cellX, y: this.cellY });
+      const edge = applyButton(this.buttons, name, press);
+      if (edge) {
+        this.#held[name] = press;
+        this.#recomputeAnyDown();
+        this.#emit(edge, { at, source: name, x: this.cellX, y: this.cellY });
+      }
     }
 
+    const keys = leftoverKeys(s);
     const wasFocused = this.#focused;
-    this.#focused = focusAfterChunk(s, this.#focused);
-    if (this.#focused && !wasFocused) {
-      // window may have moved while we were in another app. click-to-focus can
-      // also leave m1 stuck down from the VT press that never got a release.
-      this.#resetOrigin();
-      this.#lastScreen = null;
-      this.buttons.m1 = false;
-      this.buttons.m2 = false;
-      this.#recomputeAnyDown();
-    }
+    GetCursorPos(this.#pt);
+    const cols = stdout.columns ?? 80, rows = stdout.rows ?? 24;
+    const inside = pixelInTerminal(
+      this.#pt.x, this.#pt.y, this.#origin, cols, rows,
+      this.geometry.cellW, this.geometry.cellH,
+    );
+    this.#focused = focusedAfterInput(this.#focused, s, {
+      sawMouse,
+      sawKeys: keys.length > 0,
+      pixelInside: inside,
+    });
+    if (this.#focused && !wasFocused) this.#onRefocus();
 
     // mouse / focus in the same stdin chunk used to drop z, x, esc, ctrl+c
-    const keys = leftoverKeys(s);
     for (const ch of keys) {
       const lower = ch.toLowerCase();
       const bound = this.keyMap.get(lower);
       if (bound) {
         const name = bound;
-        if (!this.buttons[name]) {
-          this.buttons[name] = true;
+        if (applyButton(this.buttons, name, true)) {
           this.#recomputeAnyDown();
           this.#emit('hit', { at, source: name, x: this.cellX, y: this.cellY });
         }
       }
+      if (ch === '\x1b') {
+        if (this.#held.esc) continue;
+        this.#held.esc = true;
+      }
+      if (ch === ' ') {
+        if (this.#held.space) continue;
+        this.#held.space = true;
+      }
       this.#emit('key', { at, ch, code: ch.charCodeAt(0) });
     }
   };
+
+  #onRefocus() {
+    // click-to-focus can enter mark mode (stdin silent). put the console
+    // back in a playable state, and keep a good origin so aim does not jump
+    // to the left edge in relative fallback.
+    this.#ensurePlayableConsole();
+    GetCursorPos(this.#pt);
+    const cols = stdout.columns ?? 80, rows = stdout.rows ?? 24;
+    if (!shouldKeepOriginOnFocus(
+      this.#origin, this.#pt.x, this.#pt.y, cols, rows,
+      this.geometry.cellW, this.geometry.cellH,
+    )) {
+      this.#resetOrigin();
+      this.cellX = cols / 2;
+      this.cellY = rows / 2;
+    }
+    this.#lastScreen = null;
+    this.buttons.m1 = false;
+    this.buttons.m2 = false;
+    this.#held.m1 = false;
+    this.#held.m2 = false;
+    this.#ignoreMouseUntilUp = true;
+    this.#recomputeAnyDown();
+  }
 
   // one cell+pixel pair. see origin.mjs for the range math and the
   // out-of-window guard that keeps countdown mouse-leave from poisoning aim.
@@ -219,6 +261,10 @@ export class Input {
 
   // ENABLE_QUICK_EDIT_MODE (0x40) is on by default in conhost. clearing it needs
   // ENABLE_EXTENDED_FLAGS (0x80) in the same SetConsoleMode call or the bit is ignored.
+  #ensurePlayableConsole() {
+    this.#setQuickEdit(false);
+  }
+
   #setQuickEdit(on) {
     const ENABLE_MOUSE_INPUT = 0x0010;
     const ENABLE_QUICK_EDIT_MODE = 0x0040;
@@ -237,11 +283,13 @@ export class Input {
       if (!on) {
         const mode = [0];
         if (!this.#k32.GetConsoleMode(h, mode)) return;
-        this.#savedConsoleMode = mode[0];
-        this.#k32.SetConsoleMode(
-          h,
-          (mode[0] | ENABLE_EXTENDED_FLAGS) & ~ENABLE_QUICK_EDIT_MODE & ~ENABLE_MOUSE_INPUT,
-        );
+        // save the original mode once so disable() can put it back. calling this
+        // again after click-to-focus must not overwrite the saved value with the
+        // already-cleared bits.
+        if (this.#savedConsoleMode == null) this.#savedConsoleMode = mode[0];
+        const playable = (this.#savedConsoleMode | ENABLE_EXTENDED_FLAGS)
+          & ~ENABLE_QUICK_EDIT_MODE & ~ENABLE_MOUSE_INPUT;
+        if (mode[0] !== playable) this.#k32.SetConsoleMode(h, playable);
       } else if (this.#savedConsoleMode != null) {
         this.#k32.SetConsoleMode(h, this.#savedConsoleMode);
         this.#savedConsoleMode = null;
@@ -251,11 +299,23 @@ export class Input {
 
   // call every frame. moves the cursor and checks if keys got released.
   poll() {
-    if (!this.#focused) return;
     const cols = stdout.columns ?? 80, rows = stdout.rows ?? 24;
-
     GetCursorPos(this.#pt);
     const p = this.#pt;
+    const inside = pixelInTerminal(
+      p.x, p.y, this.#origin, cols, rows,
+      this.geometry.cellW, this.geometry.cellH,
+    );
+
+    // pointer over the text area means we still have the window, even if 1004
+    // sent O when the mouse left. poll() used to return here and freeze aim,
+    // and skip GetAsyncKeyState so esc never got a second chance. do not run
+    // the full refocus wipe — that would drop a slider hold.
+    if (!this.#focused && inside) {
+      this.#focused = true;
+      this.#ensurePlayableConsole();
+    }
+    if (!this.#focused) return;
 
     if (this.mode === 'absolute' && this.#origin.known) {
       // same pixel as the real mouse
@@ -282,16 +342,47 @@ export class Input {
       }
     }
 
-    // no key release events on this terminal so we have to poll for it
+    this.#pollWin32(inside);
+  }
+
+  // VT stdin can go silent (quick-edit mark mode after click-to-focus). aim
+  // still works via GetCursorPos; clicks, z/x, esc and space have to come from
+  // GetAsyncKeyState or the map is stuck until the process dies.
+  #pollWin32(inside) {
+    const at = nowMs();
+    if (inside) {
+      const ldown = (GetAsyncKeyState(VK.LBUTTON) & 0x8000) !== 0;
+      const rdown = (GetAsyncKeyState(VK.RBUTTON) & 0x8000) !== 0;
+      if (this.#ignoreMouseUntilUp) {
+        if (!ldown && !rdown) this.#ignoreMouseUntilUp = false;
+      } else {
+        for (const [name, down] of [['m1', ldown], ['m2', rdown]]) {
+          const edge = vkEdge(this.#held[name], down);
+          this.#held[name] = edge.held;
+          if (!edge.edge) continue;
+          const ev = applyButton(this.buttons, name, down);
+          if (!ev) continue;
+          this.#recomputeAnyDown();
+          this.#emit(ev, { at, source: name, x: this.cellX, y: this.cellY });
+        }
+      }
+    }
+
     for (const [name, ch] of [['k1', this.keys[0]], ['k2', this.keys[1]]]) {
       const vk = vkFor(ch);
       if (!vk) continue;
       const down = (GetAsyncKeyState(vk) & 0x8000) !== 0;
-      if (this.buttons[name] && !down) {
-        this.buttons[name] = false;
-        this.#recomputeAnyDown();
-        this.#emit('release', { at: nowMs(), source: name, x: this.cellX, y: this.cellY });
-      }
+      const ev = applyButton(this.buttons, name, down);
+      if (!ev) continue;
+      this.#recomputeAnyDown();
+      this.#emit(ev, { at, source: name, x: this.cellX, y: this.cellY });
+    }
+
+    for (const [prop, vk, ch] of [['esc', VK.ESCAPE, '\x1b'], ['space', VK.SPACE, ' ']]) {
+      const down = (GetAsyncKeyState(vk) & 0x8000) !== 0;
+      const edge = vkEdge(this.#held[prop], down);
+      this.#held[prop] = edge.held;
+      if (edge.edge === 'down') this.#emit('key', { at, ch, code: ch.charCodeAt(0) });
     }
   }
 

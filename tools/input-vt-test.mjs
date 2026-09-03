@@ -1,7 +1,7 @@
 // VT mouse / focus helpers. imports only src/input/vt.mjs — never input.mjs —
 // because the Win32 bindings cannot load on Linux.
 
-import { leftoverKeys, focusAfterChunk, mouseWarpEnabled } from '../src/input/vt.mjs';
+import { leftoverKeys, focusAfterChunk, focusedAfterInput, applyButton, vkEdge, mouseWarpEnabled } from '../src/input/vt.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
 let failures = 0;
@@ -55,6 +55,33 @@ check(focusAfterChunk('hello', false) === false, 'no report keeps unfocused too'
   check(old === false, 'the old includes() order would leave this chunk unfocused');
   check(focusAfterChunk(chunk, true) === true, 'the new parser keeps the last report');
 }
+
+console.log('\n=== focus resume (mouse leave must not freeze input) ===');
+check(focusedAfterInput(true, '\x1b[O', { pixelInside: true }) === true,
+  'focus-out with the pointer still over the terminal stays focused');
+check(focusedAfterInput(true, '\x1b[O', { pixelInside: false }) === false,
+  'focus-out with the pointer outside really unfocuses');
+check(focusedAfterInput(false, '\x1b[<32;10;5M', { sawMouse: true }) === true,
+  'a mouse report after a missed I restores focus');
+check(focusedAfterInput(false, 'z', { sawKeys: true }) === true,
+  'a leftover key after a missed I restores focus');
+check(focusedAfterInput(false, '', { pixelInside: true }) === true,
+  'pointer over the text area restores focus with no stdin');
+check(focusedAfterInput(false, '', {}) === false,
+  'no evidence of focus stays unfocused');
+
+console.log('\n=== button edges (VT + Win32 must not double-fire) ===');
+{
+  const s = { m1: false };
+  check(applyButton(s, 'm1', true) === 'hit' && s.m1 === true, 'press is a hit');
+  check(applyButton(s, 'm1', true) === null, 'held press is not a second hit');
+  check(applyButton(s, 'm1', false) === 'release' && s.m1 === false, 'up is a release');
+  check(applyButton(s, 'm1', false) === null, 'held release is not a second release');
+}
+check(vkEdge(false, true).edge === 'down', 'vk down edge');
+check(vkEdge(true, true).edge === null, 'vk held has no edge');
+check(vkEdge(true, false).edge === 'up', 'vk up edge');
+check(vkEdge(false, false).edge === null, 'vk idle has no edge');
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
 process.exit(failures ? 1 : 0);
