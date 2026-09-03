@@ -25,10 +25,10 @@ export function rankGlyphSize(fb, rank, leftPx) {
   return Math.max(2, Math.min(12, Math.floor(availH / LETTER_H), Math.floor(availW / gw)));
 }
 
-// live HUD grade: much bigger than a text cell, smaller than the results badge.
-// 24-row terminals get 3px (15×21); tall ones cap at 4px (20×28).
-export function liveRankPixelSize(rows) {
-  return Math.max(3, Math.min(4, Math.round(rows / 8)));
+// live HUD grade: bigger than a text cell, same 2px scale as the combo so it
+// does not eat the top-right of the playfield. A is 10×14; SS is 22×14.
+export function liveRankPixelSize(_rows) {
+  return 2;
 }
 
 function blitLetter(fb, x0, y0, rows, ps, r, g, b) {

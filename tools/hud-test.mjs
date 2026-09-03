@@ -131,17 +131,18 @@ console.log('\n=== hit error ticks fade ===');
 
 console.log('\n=== live rank ===');
 {
-  check(liveRankPixelSize(24) === 3, '24-row terminals get a 3px grade letter');
-  check(liveRankPixelSize(40) === 4, 'taller terminals get a 4px grade letter');
-  check(liveRankPixelSize(24) > hudComboPixelSize(24),
-    'the live grade is larger than the HUD combo');
+  check(liveRankPixelSize(24) === 2, 'the live grade stays at 2px');
+  check(liveRankPixelSize(50) === 2, 'tall terminals do not grow the grade');
+  check(liveRankPixelSize(24) === hudComboPixelSize(24),
+    'grade and combo share the 2px scale on a 24-row terminal');
+  check(liveRankPixelSize(24) < 3, 'the grade is not the 3–4px badge');
 
   const fb = new Framebuffer(80, 24);
   fb.clear(8, 8, 14);
   const ss = drawLiveRank(fb, { GREAT: 0, OK: 0, MEH: 0, MISS: 0 });
   check(ss.rank === 'SS', 'starts as SS');
-  check(ss.ps === 3, 'SS is drawn as a 3px pixel letter, not a text cell');
-  check(ss.w === 33 && ss.h === 21, 'SS at 3px is 33×21 (two 5×7 glyphs)');
+  check(ss.ps === 2, 'SS is a 2px pixel letter, not a text cell');
+  check(ss.w === 22 && ss.h === 14, 'SS at 2px is 22×14 (two 5×7 glyphs)');
   check(ss.x0 + ss.w >= fb.width - 4, 'SS sits in the top-right');
   check(ss.y0 <= 4, 'SS starts under the title row');
 
@@ -156,7 +157,7 @@ console.log('\n=== live rank ===');
 
   const a = drawLiveRank(fb, { GREAT: 85, OK: 15, MEH: 0, MISS: 0 });
   check(a.rank === 'A', '85% 300s FC is A live');
-  check(a.w === 15 && a.h === 21, 'A at 3px is 15×21');
+  check(a.w === 10 && a.h === 14, 'A at 2px is 10×14');
   let green = 0;
   for (let y = a.y0; y < a.y0 + a.h; y++) {
     for (let x = a.x0; x < a.x0 + a.w; x++) {
