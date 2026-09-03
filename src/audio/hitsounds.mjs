@@ -111,27 +111,27 @@ function synthesize(sound, rate) {
     case 'hitnormal':   // thump plus a click so it cuts through the song
       return make(0.055, (t, p) => {
         const env = Math.exp(-t * 90);
-        return (Math.sin(2 * Math.PI * 190 * t) * 0.55 + noise() * 0.28) * env * 0.55;
+        return (Math.sin(2 * Math.PI * 190 * t) * 0.55 + noise() * 0.28) * env * 0.95;
       });
     case 'hitwhistle':  // bright and pitched
       return make(0.09, (t) => {
         const env = Math.exp(-t * 45);
-        return (Math.sin(2 * Math.PI * 1320 * t) * 0.6 + Math.sin(2 * Math.PI * 1980 * t) * 0.25) * env * 0.4;
+        return (Math.sin(2 * Math.PI * 1320 * t) * 0.6 + Math.sin(2 * Math.PI * 1980 * t) * 0.25) * env * 0.75;
       });
     case 'hitfinish':   // cymbal-ish, long and bright
       return make(0.34, (t) => {
         const env = Math.exp(-t * 11);
-        return (noise() * 0.7 + Math.sin(2 * Math.PI * 3200 * t) * 0.18) * env * 0.42;
+        return (noise() * 0.7 + Math.sin(2 * Math.PI * 3200 * t) * 0.18) * env * 0.75;
       });
     case 'hitclap':     // short sharp burst
       return make(0.075, (t) => {
         const env = Math.exp(-t * 65);
-        return noise() * env * 0.5;
+        return noise() * env * 0.9;
       });
     case 'slidertick':
-      return make(0.035, (t) => Math.sin(2 * Math.PI * 880 * t) * Math.exp(-t * 130) * 0.3);
+      return make(0.035, (t) => Math.sin(2 * Math.PI * 880 * t) * Math.exp(-t * 130) * 0.55);
     default:
-      return make(0.04, (t) => noise() * Math.exp(-t * 100) * 0.35);
+      return make(0.04, (t) => noise() * Math.exp(-t * 100) * 0.65);
   }
 }
 
