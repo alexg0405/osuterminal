@@ -113,6 +113,16 @@ check(atOffset(cw.meh + 1)     === null,    'outside 50 window -> swallowed');
 check(atOffset(-cw.meh - 1)    === null,    'far too early -> swallowed');
 
 {
+  const g = new Game(circleMap); g.frameWall = 0; g.time = 1000;
+  const o = g.objects[0];
+  const rad = g.diff.radius;
+  check(g.handleHit(0, { x: o.x + rad * 4, y: o.y }) === null,
+    'a click far from the circle is ignored');
+  check(o.headResult === null, 'a miss-aimed tap does not consume the note');
+  check(g.handleHit(0, { x: o.x, y: o.y }) === 'GREAT', 'the same note is still hittable on-circle');
+}
+
+{
   const g = new Game(circleMap); g.frameWall = 0;
   g.time = 5000; g.processMisses();
   check(g.counts.MISS === 2, `objects skipped past expire as misses (${g.counts.MISS})`);

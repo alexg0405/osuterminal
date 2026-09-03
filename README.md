@@ -79,7 +79,7 @@ osuterminal --mods hdhr           # both
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. a live SS/S/A/B/C/D sits in the top right while you play (same colours as the ranking panel). finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter. r retries from there too; enter goes back to song select.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. a live SS/S/A/B/C/D sits in the top right while you play (same colours as the ranking panel). combo is the big number in the bottom left. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter. r retries from there too; enter goes back to song select.
 
 `-` / `=` master volume, `[` / `]` music, `,` / `.` hitsounds, `b` background. they work while playing and while paused, and they save to `~/.osuterminal.json`. `--volume 70` sets master to 70% (or `--volume 0.4` for 40%). `--no-bg` hides beatmap pictures.
 
@@ -141,7 +141,8 @@ those samples back.
 ## what works
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
-note lock, stacking. Hit circles are rings rather than solid discs, so streams and
+note lock, stacking. Clicks have to land on the circle (same radius as the disc) and
+300/100/50 windows match osu!stable. Hit circles are rings rather than solid discs, so streams and
 stacks stay countable; a pile also spreads up-left and the next hit shows how many
 are left. Hitsounds load from the beatmap folder and fall back to synthesized
 ones when a map doesn't ship them. Beatmap backgrounds (jpg/png) render pixelated and

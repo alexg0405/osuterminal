@@ -2,6 +2,7 @@
 // spinners aren't done, they need rotation tracking which is a separate thing.
 
 import { Framebuffer } from './render/framebuffer.mjs';
+import { cursorOnObject } from './core/beatmap.mjs';
 import { Playfield } from './render/playfield.mjs';
 import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
@@ -170,7 +171,9 @@ export class Game {
 
   // ------------------------------------------------------------- judgement
   // runs on every tap. at is when the input actually arrived, not the frame time.
-  handleHit(at) {
+  // cursor is osu-space; if it is given, the tap is ignored unless it lands on
+  // the object's disc (same as osu — a miss-aim does not consume the note).
+  handleHit(at, cursor) {
     const t = this.timeAtWall(at);
     const w = this.diff.windows;
 
@@ -182,6 +185,7 @@ export class Game {
 
     const dt = t - o.time;
     if (dt < -w.meh || dt > w.meh) return null;
+    if (!cursorOnObject(cursor, o, this.diff.radius)) return null;
 
     const ad = Math.abs(dt);
     const kind = ad <= w.great ? 'GREAT' : ad <= w.ok ? 'OK' : 'MEH';
@@ -386,7 +390,10 @@ export class Game {
     this.frameWall = nowMs();
     let quit = false, paused = false, restart = false, toMenu = false, quitApp = false;
 
-    input.on('hit', ({ at }) => { if (!paused) this.handleHit(at); });
+    input.on('hit', ({ at }) => {
+      if (paused) return;
+      this.handleHit(at, pf.toOsu(input.cellX, input.cellY * 2));
+    });
     const setPaused = (v) => {
       if (v === paused) return;
       paused = v;
@@ -611,13 +618,13 @@ export class Game {
     fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
     drawLiveRank(fb, c, 1);
 
-    fb.text(1, fb.rows - 1, `${this.combo}x`, this.combo > 0 ? 0xffd257 : 0x555555);
     const help = 'esc pause';
     fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
     // coloured squares sit on the row under the error bar so 300/100/50/X
     // match the ticks above instead of being a grey blob of numbers.
     drawJudgementLegend(fb, c, fb.rows - 2);
     drawHitErrorBar(fb, this.errors, this.diff.windows, this.time);
+    fb.drawHudCombo(this.combo, this.combo > 0 ? 0xffd257 : 0x555555);
 
     const filled = Math.round(this.progress * fb.cols);
     for (let x = 0; x < fb.cols; x++) {

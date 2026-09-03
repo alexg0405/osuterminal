@@ -16,14 +16,23 @@ export const HitObjectType = {
 
 const NUM = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 
-// one-sided hit windows in ms. 100 and 50 match osu!stable (140-8*OD / 200-10*OD).
-// 300 is 80-4*OD instead of 80-6*OD — terminal taps are quantized to a frame and
-// VT mouse, so the official window reads as 100s. still clamped inside 100.
+// one-sided hit windows in ms. same curves as osu!stable:
+//   300 = 80-6*OD, 100 = 140-8*OD, 50 = 200-10*OD
+// 300 is clamped inside 100 so a high OD can never make a 300 wider than a 100.
 export function hitWindows(od) {
   const ok = 140 - 8 * od;
   const meh = 200 - 10 * od;
-  const great = Math.min(80 - 4 * od, ok - 8);
+  const great = Math.min(80 - 6 * od, ok - 8);
   return { great, ok, meh };
+}
+
+// true if the cursor is on the object's disc. a missing cursor skips the check
+// so autoplay / unit tests can still call handleHit(at) without a position.
+export function cursorOnObject(cursor, object, radius) {
+  if (cursor == null || object == null) return true;
+  const dx = cursor.x - object.x;
+  const dy = cursor.y - object.y;
+  return dx * dx + dy * dy <= radius * radius;
 }
 
 // 0,0,"bg.jpg",0,0   or   Background,0,bg.jpg

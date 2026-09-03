@@ -1,7 +1,7 @@
 // hit windows and the 300/100/50/X colour legend. does not import game.mjs.
 
 import { Difficulty, hitWindows } from '../src/core/beatmap.mjs';
-import { Framebuffer } from '../src/render/framebuffer.mjs';
+import { Framebuffer, comboPixelSize, hudComboPixelSize, comboGlyphSize } from '../src/render/framebuffer.mjs';
 import {
   JUDGE, judgementLegend, judgementColour, drawJudgementLegend, drawHitErrorBar,
   ERROR_TICK_FADE_MS, errorTickAlpha, meanError, drawLiveRank,
@@ -19,19 +19,20 @@ console.log('\n=== hit windows ===');
   const w = hitWindows(5);
   check(w.ok === 140 - 8 * 5, 'OD5 100 window matches osu!stable');
   check(w.meh === 200 - 10 * 5, 'OD5 50 window matches osu!stable');
-  check(w.great === 80 - 4 * 5, 'OD5 300 is 80-4*OD (±60ms)');
-  check(w.great > stable300(5), 'OD5 300 is wider than osu!stable ±50ms');
+  check(w.great === stable300(5), 'OD5 300 is 80-6*OD (±50ms)');
+  check(w.great === 50, 'OD5 300 is ±50ms');
   check(w.great < w.ok && w.ok < w.meh, '300 < 100 < 50');
 }
 {
   const w = hitWindows(8);
-  check(w.great === 48, `OD8 300 is ±48ms (osu!stable is ±32ms, got ${w.great})`);
-  check(w.great > stable300(8), 'OD8 300 is more forgiving than stable');
+  check(w.great === 32, `OD8 300 is ±32ms (got ${w.great})`);
+  check(w.great === stable300(8), 'OD8 300 matches osu!stable');
   check(w.great < w.ok, 'OD8 300 still sits inside 100');
 }
 {
   const w = hitWindows(10);
-  check(w.great === 40, `OD10 300 is ±40ms not the stable ±20ms (got ${w.great})`);
+  check(w.great === 20, `OD10 300 is ±20ms (got ${w.great})`);
+  check(w.great === stable300(10), 'OD10 300 matches osu!stable');
   check(w.great <= w.ok - 8, 'OD10 300 is clamped inside 100');
 }
 {
@@ -145,6 +146,36 @@ console.log('\n=== live rank ===');
 
   const d = drawLiveRank(fb, { GREAT: 10, OK: 10, MEH: 10, MISS: 70 });
   check(d.rank === 'D' && fb.txtFg[1 * 80 + d.col] === rankColour('D').hex, 'D is red');
+}
+
+console.log('\n=== HUD combo ===');
+{
+  check(hudComboPixelSize(24) >= 3, '24-row terminals get at least 3px glyphs');
+  check(hudComboPixelSize(50) === 5, 'tall terminals cap at 5px');
+  check(hudComboPixelSize(50) > comboPixelSize(30), 'HUD combo is bigger than on-circle labels');
+  check(comboGlyphSize('8', 3).w === 15 && comboGlyphSize('8', 3).h === 21, 'one digit at 3px is 15×21');
+  check(comboGlyphSize('128', 3).w === 51, 'three digits at 3px are 51 wide');
+
+  const fb = new Framebuffer(80, 24);
+  fb.clear(8, 8, 14);
+  fb.text(3, fb.rows - 1, 'xxx', 0xffffff);
+  fb.text(fb.cols - 9, fb.rows - 1, 'esc pause', 0x5a6272);
+  const box = fb.drawHudCombo(128, 0xffd257);
+  check(box.pixelSize >= 3, `drawn HUD combo uses ${box.pixelSize}px glyphs`);
+  check(box.x0 <= 2, 'combo sits on the left');
+  check(box.y0 + box.h === fb.height, 'combo sits flush with the bottom');
+  check(box.h >= 21, 'combo is at least 21 pixels tall');
+
+  let gold = 0;
+  for (let y = box.y0; y < box.y0 + box.h; y++) {
+    for (let x = box.x0; x < box.x0 + box.w; x++) {
+      const i = (y * fb.width + x) * 3;
+      if (fb.px[i] > 200 && fb.px[i + 1] > 180 && fb.px[i + 2] < 120) gold++;
+    }
+  }
+  check(gold > 40, `gold combo ink is present (${gold} px)`);
+  check(fb.txtChar[(fb.rows - 1) * 80 + 3] === 0, 'HUD text under the combo is cleared');
+  check(fb.txtChar[(fb.rows - 1) * 80 + fb.cols - 9] === 'e', 'help text on the right survives');
 }
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
