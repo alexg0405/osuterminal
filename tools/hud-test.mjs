@@ -145,6 +145,18 @@ console.log('\n=== live rank ===');
   check(ss.w === 22 && ss.h === 14, 'SS at 2px is 22×14 (two 5×7 glyphs)');
   check(ss.x0 + ss.w >= fb.width - 4, 'SS sits in the top-right');
   check(ss.y0 <= 4, 'SS starts under the title row');
+  check(ss.w * ss.h <= 22 * 14, 'SS footprint stays at 22×14, not the old glow badge');
+
+  let glow = 0;
+  for (let y = 0; y < fb.height; y++) {
+    for (let x = 0; x < fb.width; x++) {
+      const inside = x >= ss.x0 && x < ss.x0 + ss.w && y >= ss.y0 && y < ss.y0 + ss.h;
+      if (inside) continue;
+      const i = (y * fb.width + x) * 3;
+      if (fb.px[i] !== 8 || fb.px[i + 1] !== 8 || fb.px[i + 2] !== 14) glow++;
+    }
+  }
+  check(glow === 0, `live grade has no glow disc outside the letter (${glow} px)`);
 
   let gold = 0;
   for (let y = ss.y0; y < ss.y0 + ss.h; y++) {

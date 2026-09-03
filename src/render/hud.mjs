@@ -55,7 +55,7 @@ export function drawLiveRank(fb, counts) {
     for (let col = c0; col <= c1; col++) fb.txtChar[row * fb.cols + col] = 0;
   }
 
-  const box = drawRankLetter(fb, rank, cx, cy, ps);
+  const box = drawRankLetter(fb, rank, cx, cy, ps, { glow: false });
   return { rank, hex, rgb, ps, ...box };
 }
 

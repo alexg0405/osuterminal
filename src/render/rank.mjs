@@ -41,14 +41,16 @@ function blitLetter(fb, x0, y0, rows, ps, r, g, b) {
   }
 }
 
-export function drawRankLetter(fb, rank, cx, cy, ps) {
+export function drawRankLetter(fb, rank, cx, cy, ps, { glow = true } = {}) {
   const glyphs = rankLetters(rank);
   const gw = glyphs.length * LETTER_W + (glyphs.length - 1) * LETTER_GAP;
   const x0 = Math.round(cx - (gw * ps) / 2);
   const y0 = Math.round(cy - (LETTER_H * ps) / 2);
   const { rgb } = rankColour(rank);
   const [r, g, b] = rgb;
-  fb.fillCircle(cx, cy, Math.max(gw, LETTER_H) * ps * 0.58, r, g, b, 0.18);
+  // the results screen wants a soft disc; the live HUD letter is already
+  // small and the disc made SS look like a 26px badge.
+  if (glow) fb.fillCircle(cx, cy, Math.max(gw, LETTER_H) * ps * 0.58, r, g, b, 0.18);
   for (let i = 0; i < glyphs.length; i++) {
     const rows = LETTERS[glyphs[i]] ?? LETTERS.D;
     blitLetter(fb, x0 + i * (LETTER_W + LETTER_GAP) * ps, y0, rows, ps, r, g, b);
