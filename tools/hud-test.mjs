@@ -4,8 +4,9 @@ import { Difficulty, hitWindows } from '../src/core/beatmap.mjs';
 import { Framebuffer } from '../src/render/framebuffer.mjs';
 import {
   JUDGE, judgementLegend, judgementColour, drawJudgementLegend, drawHitErrorBar,
-  ERROR_TICK_FADE_MS, errorTickAlpha, meanError,
+  ERROR_TICK_FADE_MS, errorTickAlpha, meanError, drawLiveRank,
 } from '../src/render/hud.mjs';
+import { rankColour } from '../src/grade.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
 let failures = 0;
@@ -124,6 +125,26 @@ console.log('\n=== hit error ticks fade ===');
   const expired = pix(mid);
   check(expired[0] === rest[0] && expired[1] === rest[1] && expired[2] === rest[2],
     'an expired tick leaves the track untouched');
+}
+
+console.log('\n=== live rank ===');
+{
+  const fb = new Framebuffer(80, 24);
+  fb.clear(8, 8, 14);
+  const ss = drawLiveRank(fb, { GREAT: 0, OK: 0, MEH: 0, MISS: 0 });
+  check(ss.rank === 'SS' && ss.row === 1, 'starts as SS in the top-right row');
+  check(ss.col === 80 - 2 - 1, 'SS is right-aligned');
+  check(fb.txtChar[1 * 80 + ss.col] === 'S' && fb.txtChar[1 * 80 + ss.col + 1] === 'S', 'SS glyphs are drawn');
+  check(fb.txtFg[1 * 80 + ss.col] === rankColour('SS').hex, 'SS is gold');
+
+  const a = drawLiveRank(fb, { GREAT: 85, OK: 15, MEH: 0, MISS: 0 });
+  check(a.rank === 'A', '85% 300s FC is A live');
+  check(a.col === 80 - 1 - 1, 'A is one column in from the right edge');
+  check(fb.txtChar[1 * 80 + a.col] === 'A', 'A sits in the top-right');
+  check(fb.txtFg[1 * 80 + a.col] === rankColour('A').hex, 'A is green');
+
+  const d = drawLiveRank(fb, { GREAT: 10, OK: 10, MEH: 10, MISS: 70 });
+  check(d.rank === 'D' && fb.txtFg[1 * 80 + d.col] === rankColour('D').hex, 'D is red');
 }
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);

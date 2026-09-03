@@ -1,5 +1,6 @@
-// in-game footer: hit-error bar and the 300/100/50/X legend under it.
+// in-game HUD: hit-error bar, 300/100/50/X legend, live grade.
 // kept free of Win32 so the colours and layout can be tested on Linux.
+import { rankFromCounts, rankColour } from '../grade.mjs';
 
 export const JUDGE = {
   GREAT: { score: 300, colour: [90, 200, 255], hex: 0x5ac8ff, label: '300' },
@@ -30,6 +31,15 @@ export function judgementLegend(counts) {
   });
   const str = parts.map((p) => p.text).join('  ');
   return { parts, str, swatch: SWATCH };
+}
+
+// live grade in the top-right. SS until the first drop, same table as results.
+export function drawLiveRank(fb, counts, row = 1) {
+  const rank = rankFromCounts(counts);
+  const { hex } = rankColour(rank);
+  const col = Math.max(0, fb.cols - rank.length - 1);
+  fb.text(col, row, rank, hex);
+  return { rank, col, row, hex };
 }
 
 export function drawJudgementLegend(fb, counts, row) {

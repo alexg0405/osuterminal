@@ -13,7 +13,7 @@ import { drawReverseArrow } from './render/arrow.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
-import { JUDGE, drawJudgementLegend, drawHitErrorBar, meanError } from './render/hud.mjs';
+import { JUDGE, drawJudgementLegend, drawHitErrorBar, meanError, drawLiveRank } from './render/hud.mjs';
 import {
   normalizeMods, applyModsToDifficulty, flipY, modsAcronyms, modsLabel, scoreMultiplier,
   objectAlpha, approachAlpha,
@@ -609,6 +609,7 @@ export class Game {
     fb.text(1, 0, title.slice(0, fb.cols - 24), 0x9aa4b8);
     const right = `${String(this.score).padStart(8, '0')}   ${acc}%`;
     fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
+    drawLiveRank(fb, c, 1);
 
     fb.text(1, fb.rows - 1, `${this.combo}x`, this.combo > 0 ? 0xffd257 : 0x555555);
     const help = 'esc pause';

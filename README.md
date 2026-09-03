@@ -79,7 +79,7 @@ osuterminal --mods hdhr           # both
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter (gold S, green A, and so on). r retries from there too; enter goes back to song select.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. a live SS/S/A/B/C/D sits in the top right while you play (same colours as the ranking panel). finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter. r retries from there too; enter goes back to song select.
 
 `-` / `=` master volume, `[` / `]` music, `,` / `.` hitsounds, `b` background. they work while playing and while paused, and they save to `~/.osuterminal.json`. `--volume 70` sets master to 70% (or `--volume 0.4` for 40%). `--no-bg` hides beatmap pictures.
 
