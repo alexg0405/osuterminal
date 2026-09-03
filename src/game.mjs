@@ -9,7 +9,8 @@ import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
 import { SliderPath, sliderTiming, sliderTicks, sliderRepeats, reverseDirection } from './core/slider.mjs';
 import { applyStacking } from './core/stack.mjs';
-import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
+import { drawHitCircle, drawApproachCircle, comboVisible } from './render/hitcircle.mjs';
+import { drawFollowPoints } from './render/followpoint.mjs';
 import { drawReverseArrow } from './render/arrow.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains, hitsoundSampleGain } from './volume.mjs';
@@ -474,6 +475,10 @@ export class Game {
       if (this.time > o.endTime + 250) continue;
       visible.push(o);
     }
+    // approaches and followpoints sit under the discs so a stream path stays
+    // readable instead of disappearing under a pile of 4× rings.
+    for (let i = visible.length - 1; i >= 0; i--) this.#drawApproach(fb, pf, visible[i], rad, pre, fade);
+    this.#drawFollowPoints(fb, pf, pre, fade);
     for (let i = visible.length - 1; i >= 0; i--) this.#drawObject(fb, pf, visible[i], rad, pre, fade);
 
     this.#drawHud(fb, paused);
@@ -504,6 +509,25 @@ export class Game {
     fb.textCentered(Math.min(fb.rows - 3, Math.floor(fb.rows / 2) + 5), text, 0xffd257, 0x12121a);
   }
 
+  #drawApproach(fb, pf, o, rad, pre, fade) {
+    if (o.result || o.headResult) return;
+    const dt = o.time - this.time;
+    const acA = approachAlpha(dt, pre, fade);
+    if (!(dt > 0 && acA > 0)) return;
+    const [cr, cg, cb] = COMBO_COLOURS[o.comboColour];
+    drawApproachCircle(fb, pf.sx(o.x), pf.sy(o.y), rad, dt, pre, [cr, cg, cb], acA);
+  }
+
+  #drawFollowPoints(fb, pf, pre, fade) {
+    const start = Math.max(0, this.nextIndex - 1);
+    for (let i = start; i < this.objects.length - 1; i++) {
+      const a = this.objects[i], b = this.objects[i + 1];
+      if (b.time - this.time > pre) break;
+      if (a.result && this.time - a.resultAt > 90) continue;
+      drawFollowPoints(fb, pf, a, b, this.time, pre, fade);
+    }
+  }
+
   #drawObject(fb, pf, o, rad, pre, fade) {
     const dt = o.time - this.time;
     const [cr, cg, cb] = COMBO_COLOURS[o.comboColour];
@@ -527,19 +551,15 @@ export class Game {
 
     // keep drawing the head circle until the head is judged. Hidden fades the
     // disc out early; the approach circle still shrinks in so you have a cue.
-    if (!o.headResult) {
-      if (alpha > 0) {
-        const stacked = (o.stackSize ?? 1) >= 2;
-        const remaining = stacked && o.index === this.nextIndex ? this.#stackRemaining(o) : 0;
-        const next = this.objects[this.nextIndex];
-        const combo = remaining >= 2 || !comboVisible(o, next, this.diff.radius) ? null : o.combo;
-        drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
-          stacked, combo, count: remaining >= 2 ? remaining : null,
-        });
-      }
-      if (dt > 0 && acA > 0) {
-        fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, acA * 0.75);
-      }
+    if (!o.headResult && alpha > 0) {
+      const stacked = (o.stackSize ?? 1) >= 2;
+      const remaining = stacked && o.index === this.nextIndex ? this.#stackRemaining(o) : 0;
+      const next = this.objects[this.nextIndex];
+      const combo = remaining >= 2 || !comboVisible(o, next, this.diff.radius, { stacked })
+        ? null : o.combo;
+      drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
+        stacked, combo, count: remaining >= 2 ? remaining : null,
+      });
     }
   }
 

@@ -1,22 +1,38 @@
-// hit circles as rings so overlapping notes (streams, stacks) stay countable.
-// a solid disc at terminal resolution eats everything underneath; a dim fill
-// plus a strong rim leaves a crescent of each circle behind.
+// hit circles.
+//
+// streams are a path of overlapping discs with combo numbers 1, 2, 3… — same
+// idea as osu. stacks stay rings + pips + a gold remaining-count so a same-spot
+// pile is countable at terminal resolution.
 
 export const STACK_COUNT_RGB = [255, 210, 87];
 
-// hide combo numbers that sit under the next hit — they turn into noise.
-// the next note always keeps its label (combo, or stack remaining).
-export function comboVisible(o, next, radius) {
+export const APPROACH_STROKE = 0.9;
+export const APPROACH_ALPHA = 0.4;
+
+// stacks hide combo digits (the gold remaining-count is the label).
+// streams keep every number so you can read direction.
+export function comboVisible(o, next, _radius, { stacked = false } = {}) {
   if (!next || o.index === next.index) return true;
-  return Math.hypot(o.x - next.x, o.y - next.y) >= radius * 1.55;
+  if (stacked || (o.stackSize ?? 1) >= 2) return false;
+  return true;
+}
+
+export function approachRadius(rad, dt, preempt) {
+  if (!(preempt > 0)) return rad;
+  return rad * (1 + 3 * Math.max(0, dt) / preempt);
+}
+
+export function drawApproachCircle(fb, cx, cy, rad, dt, preempt, [cr, cg, cb], acA) {
+  if (!(dt > 0 && acA > 0 && rad > 0)) return;
+  fb.strokeCircle(cx, cy, approachRadius(rad, dt, preempt), APPROACH_STROKE, cr, cg, cb, acA * APPROACH_ALPHA);
 }
 
 export function drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
   stacked = false, combo = null, count = null,
 } = {}) {
   if (alpha <= 0 || rad <= 0) return;
-  const fillA = alpha * (stacked ? 0.12 : 0.20);
-  const shade = stacked ? 0.20 : 0.30;
+  const fillA = alpha * (stacked ? 0.12 : 0.55);
+  const shade = stacked ? 0.20 : 0.62;
   fb.fillCircle(cx, cy, rad, cr * shade, cg * shade, cb * shade, fillA);
 
   const strokeW = stacked

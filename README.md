@@ -142,9 +142,9 @@ those samples back.
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
 note lock, stacking. Clicks have to land on the circle (same radius as the disc) and
-300/100/50 windows match osu!stable. Hit circles are rings rather than solid discs, so streams and
-stacks stay countable; a pile also spreads up-left and the next hit shows how many
-are left. Hitsounds load from the beatmap folder and fall back to synthesized
+300/100/50 windows match osu!stable. Streams are overlapping discs with combo numbers
+and follow points, the way osu draws them; stacked notes stay rings that spread
+up-left, and the next hit shows how many are left. Hitsounds load from the beatmap folder and fall back to synthesized
 ones when a map doesn't ship them. Beatmap backgrounds (jpg/png) render pixelated and
 heavily dimmed at terminal resolution. Volume is three sliders: master, music, hitsounds.
 Hidden and Hard Rock work: HD fades objects out before the hit, HR raises CS/AR/OD/HP

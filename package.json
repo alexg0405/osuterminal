@@ -59,7 +59,8 @@
     "test:input": "node tools/input-vt-test.mjs",
     "test:hud": "node tools/hud-test.mjs",
     "test:aim": "node tools/aim-test.mjs",
-    "test:arrow": "node tools/arrow-test.mjs"
+    "test:arrow": "node tools/arrow-test.mjs",
+    "test:followpoint": "node tools/followpoint-test.mjs"
   },
   "engines": {
     "node": ">=20"
