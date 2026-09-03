@@ -19,10 +19,11 @@
 // screen position of the terminal's text area, and windows doesn't give you it.
 // GetConsoleWindow returns a hidden pseudo console window, not the real one.
 //
-// so we solve for it. motion events give the cell, GetCursorPos gives the pixel, and
-// together that narrows the origin to a one cell wide range. intersect enough of those
-// and you get the exact value. if the window moves the ranges stop overlapping, which
-// is easy to detect, and it starts over.
+// so we solve for it. see origin.mjs. motion events give the cell, GetCursorPos
+// gives the pixel, and together that narrows the origin to a one cell wide range.
+// intersect enough of those and you get the exact value. if the window moves the
+// ranges stop overlapping and it starts over — unless the pixel is outside the
+// terminal, which is the mouse leaving, not a window move.
 //
 // relative mode warps the OS pointer back to screen centre near the edges so you can
 // keep spinning. absolute mode must never do that — before the origin is solved we
@@ -34,6 +35,7 @@
 import koffi from 'koffi';
 import { stdin, stdout } from 'node:process';
 import { leftoverKeys, focusAfterChunk, mouseWarpEnabled } from './vt.mjs';
+import { emptyOrigin, observeOrigin } from './origin.mjs';
 
 const CSI = '\x1b[';
 const nowMs = () => Number(process.hrtime.bigint()) / 1e6;
@@ -62,7 +64,7 @@ export class Input {
   #enabled = false;
   #focused = true;
   #lastScreen = null;
-  #origin = { lx: null, ux: null, ly: null, uy: null, x: 0, y: 0, known: false, precision: Infinity };
+  #origin = emptyOrigin();
   #savedConsoleMode = null;
   #k32 = null;
 
@@ -193,37 +195,21 @@ export class Input {
     }
   };
 
-  // one cell+pixel pair. mouse is somewhere inside cell col, so
-  //   origin + (col-1)*cellW <= sx < origin + col*cellW
-  // which gives a one cell wide range. keep intersecting those and it collapses
-  // down to a single value.
+  // one cell+pixel pair. see origin.mjs for the range math and the
+  // out-of-window guard that keeps countdown mouse-leave from poisoning aim.
   #observeOrigin(col, row) {
     const { cellW, cellH } = this.geometry;
     GetCursorPos(this.#pt);
-    const sx = this.#pt.x, sy = this.#pt.y;
-
-    const ux = sx - (col - 1) * cellW, lx = ux - cellW;
-    const uy = sy - (row - 1) * cellH, ly = uy - cellH;
-    const o = this.#origin;
-
-    if (o.lx === null) {
-      Object.assign(o, { lx, ux, ly, uy });
-    } else {
-      const nlx = Math.max(o.lx, lx), nux = Math.min(o.ux, ux);
-      const nly = Math.max(o.ly, ly), nuy = Math.min(o.uy, uy);
-      // ranges stopped overlapping, window must have moved. start over.
-      if (nlx > nux || nly > nuy) Object.assign(o, { lx, ux, ly, uy });
-      else Object.assign(o, { lx: nlx, ux: nux, ly: nly, uy: nuy });
-    }
-
-    o.x = (o.lx + o.ux) / 2;
-    o.y = (o.ly + o.uy) / 2;
-    o.precision = Math.max(o.ux - o.lx, o.uy - o.ly);
-    o.known = true;
+    observeOrigin(this.#origin, col, row, this.#pt.x, this.#pt.y, {
+      cols: stdout.columns ?? 80,
+      rows: stdout.rows ?? 24,
+      cellW,
+      cellH,
+    });
   }
 
   #resetOrigin() {
-    this.#origin = { lx: null, ux: null, ly: null, uy: null, x: 0, y: 0, known: false, precision: Infinity };
+    this.#origin = emptyOrigin();
   }
 
   #recomputeAnyDown() {
