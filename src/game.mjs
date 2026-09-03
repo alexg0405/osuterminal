@@ -566,8 +566,8 @@ export class Game {
 
   #drawSlider(fb, pf, o, rad, alpha, [cr, cg, cb]) {
     const path = o.path;
-    // stamp discs along the path. spacing is based on the radius so the body stays
-    // solid without doing one disc per pixel, which would be way too slow on long ones.
+    // stamp overlapping fills along the path. the outline is the left/right
+    // edges, not a ring on every stamp (that looked like a stream).
     if (alpha > 0) {
       drawSliderBody(fb, sampleSliderScreen(path, pf, rad), rad, [cr, cg, cb], alpha);
 
