@@ -205,6 +205,40 @@ const sliderMap = makeMap('100,100,1000,2,0,L|300:100,1,200');
   check(Math.abs(g.accuracy - (300 + 100) / 600) < 1e-9, 'accuracy = (300a+100b+50c)/(300n)');
 }
 
+console.log('\n=== mods ===');
+{
+  const g = new Game(circleMap, { mods: { hardRock: true } });
+  check(g.objects[0].y === 384 - 100, `HR flips y=100 to ${384 - 100} (got ${g.objects[0].y})`);
+  check(g.objects[0].x === 100, 'HR leaves x alone');
+  check(g.diff.cs === 5.6, `HR CS 4 -> 5.6 (got ${g.diff.cs})`);
+  check(g.diff.ar === 10, 'HR AR 9 caps at 10');
+  check(g.diff.od === 10, 'HR OD 8 caps at 10');
+  const later = new Game(circleMap);
+  check(later.objects[0].y === 100, 'a following NM play is not flipped');
+  check(circleMap.hitObjects[0].y === 100, 'the beatmap itself is not mutated');
+}
+{
+  const g = new Game(sliderMap, { mods: { hardRock: true } });
+  const s = g.objects[0];
+  const mid = s.path.positionAt(0.5);
+  check(Math.abs(mid.y - (384 - 100)) < 0.01 && Math.abs(mid.x - 200) < 0.01,
+    `HR slider body is flipped (mid ${mid.x.toFixed(1)},${mid.y.toFixed(1)})`);
+}
+{
+  const g = new Game(circleMap, { mods: { hidden: true } });
+  g.frameWall = 0;
+  g.time = 1000;
+  check(g.handleHit(0) === 'GREAT', 'Hidden does not change hit windows');
+  check(g.diff.windows.great === circleMap.difficulty.windows.great, 'HD keeps the map OD');
+}
+{
+  const g = new Game(makeMap('100,100,1000,1,0'));
+  g.frameWall = 0; g.time = 1000; g.handleHit(0);
+  const hr = new Game(makeMap('100,100,1000,1,0'), { mods: { hardRock: true } });
+  hr.frameWall = 0; hr.time = 1000; hr.handleHit(0);
+  check(hr.score > g.score, `HR score bonus (${hr.score} > ${g.score})`);
+}
+
 // ---------------------------------------------------------------- hitsounds
 console.log('\n=== hitsounds ===');
 {

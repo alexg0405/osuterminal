@@ -11,7 +11,9 @@ import { PNG } from 'pngjs';
 import { parseBackgroundEvent } from '../core/beatmap.mjs';
 
 export { parseBackgroundEvent };
-export const BG_DIM = 0.22;
+// leftover brightness after dim. 0.10 keeps the art as atmosphere instead of
+// competing with circles on bright maps. b still hides it entirely.
+export const BG_DIM = 0.10;
 export const MAX_BG_BYTES = 12_000_000;
 export const MAX_BG_PIXELS = 12_000_000;
 

@@ -11,6 +11,9 @@
 // needs real characters rather than half blocks.
 
 import process from 'node:process';
+import {
+  normalizeMods, toggleHidden, toggleHardRock, modsAcronyms, applyModsToDifficulty,
+} from './core/mods.mjs';
 
 const CSI = '\x1b[';
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -26,8 +29,8 @@ const GOLD = fg(0xffd257);
 
 // rough difficulty estimate for the colours. real star rating needs the whole pp
 // algorithm.
-function difficultyTint(b) {
-  const d = b.difficulty;
+function difficultyTint(b, mods) {
+  const d = applyModsToDifficulty(b.difficulty, mods);
   const score = d.ar * 0.5 + d.od * 0.3 + d.cs * 0.2 + Math.min(4, b.hitObjects.length / 250);
   if (score < 5) return fg(0x88dd77);
   if (score < 7) return fg(0x66ccff);
@@ -38,8 +41,8 @@ function difficultyTint(b) {
 
 const pad = (s, n) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s.padEnd(n));
 
-// returns { type: 'play', map } or { type: 'browse' }, or null if they backed out
-export function selectSong(maps) {
+// returns { type: 'play', map, mods } or { type: 'browse' }, or null if they backed out
+export function selectSong(maps, opts = {}) {
   // grabbed here rather than imported at the top, because node:process named exports
   // are bound once at load and cannot be swapped out for a test double
   const stdin = process.stdin;
@@ -62,6 +65,11 @@ export function selectSong(maps) {
     let setIdx = 0, diffIdx = 0, scroll = 0;
     let done = false;
     let searching = false;    // slash toggles the filter field; the text stays
+    let mods = normalizeMods(opts.mods);
+    const bumpMods = (next) => {
+      mods = next;
+      opts.onMods?.(mods);
+    };
 
     const refilter = () => {
       const q = query.toLowerCase();
@@ -92,12 +100,14 @@ export function selectSong(maps) {
       const to = Math.min(filtered.length, scroll + listH);
       const more = filtered.length > to ? `  ${to < filtered.length ? '▼' : ''}` : '';
       const above = scroll > 0 ? '▲ ' : '';
+      const tag = modsAcronyms(mods);
       out.push(`${BRIGHT}  osuterminal${RESET}${DIM}   ${filtered.length} set${filtered.length === 1 ? '' : 's'}`);
+      if (tag) out.push(`${GOLD}   +${tag}${RESET}`);
       if (filtered.length) out.push(`${DIM}   ${above}${from}-${to}${RESET}${more}`);
       out.push('\r\n');
       out.push(searching ? `   ${ACCENT}/${query}_${RESET}`
         : query ? `   ${ACCENT}/${query}${RESET}${DIM}  / to edit   backspace clears${RESET}`
-        : `   ${DIM}\\ to download more   / to filter this list${RESET}`);
+        : `   ${DIM}\\ to download more   / to filter   h HD   r HR${RESET}`);
       out.push('\r\n');
 
       const cur = filtered[setIdx];
@@ -117,10 +127,10 @@ export function selectSong(maps) {
         if (cur && i < cur.diffs.length && rightW > 16) {
           const b = cur.diffs[i];
           const sel = i === diffIdx;
-          const d = b.difficulty;
-          const stats = `CS${d.cs} AR${d.ar} OD${d.od}`;
+          const d = applyModsToDifficulty(b.difficulty, mods);
+          const stats = `CS${fmtStat(d.cs)} AR${fmtStat(d.ar)} OD${fmtStat(d.od)}`;
           const name = pad(b.diffName, Math.max(4, rightW - stats.length - 4));
-          const tint = difficultyTint(b);
+          const tint = difficultyTint(b, mods);
           out.push(sel ? `${bg(0x3a2438)}${tint}> ${name} ${DIM}${stats}${RESET}`
                        : `${tint}  ${name} ${DIM}${stats}${RESET}`);
         }
@@ -129,7 +139,7 @@ export function selectSong(maps) {
 
       if (cur && cur.diffs[diffIdx]) {
         const b = cur.diffs[diffIdx];
-        const d = b.difficulty;
+        const d = applyModsToDifficulty(b.difficulty, mods);
         out.push(`  ${GOLD}${pad(b.diffName, Math.min(24, cols - 8))}${RESET}${DIM} by ${b.creator}   ` +
           `300:±${d.windows.great.toFixed(0)}ms  preempt ${d.preempt.toFixed(0)}ms${RESET}\r\n`);
       } else {
@@ -194,7 +204,7 @@ export function selectSong(maps) {
       if (s === '\\' || s === '\t') return finish({ type: 'browse' });
       if (s === '\r' || s === '\n') {
         const cur = filtered[setIdx];
-        return cur ? finish({ type: 'play', map: cur.diffs[diffIdx] }) : undefined;
+        return cur ? finish({ type: 'play', map: cur.diffs[diffIdx], mods }) : undefined;
       }
       // clearing the filter without having to open the search again
       if (s === '\x7f' || s === '\b') {
@@ -209,6 +219,8 @@ export function selectSong(maps) {
       if (k === 's') { moveSet(1); return draw(); }
       if (k === 'a') { moveDiff(-1); return draw(); }
       if (k === 'd') { moveDiff(1); return draw(); }
+      if (k === 'h') { bumpMods(toggleHidden(mods)); return draw(); }
+      if (k === 'r') { bumpMods(toggleHardRock(mods)); return draw(); }
       if (k === 'q') return finish(null);
     };
 
@@ -220,4 +232,8 @@ export function selectSong(maps) {
     refilter();
     draw();
   });
+}
+
+function fmtStat(n) {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
 }

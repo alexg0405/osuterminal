@@ -82,7 +82,7 @@ export function drawResult(fb, map, summary) {
 
   const title = `${map.artist} - ${map.title}`;
   fb.text(2, 1, pad(title, fb.cols - 4), 0xffffff);
-  fb.text(2, 2, pad(`[${map.diffName}]`, fb.cols - 4), 0x8a94a8);
+  fb.text(2, 2, pad(`[${map.diffName}]${summary.mods ? `  +${summary.mods}` : ''}`, fb.cols - 4), 0x8a94a8);
 
   // stats live in a right column so the letter can eat most of the screen
   const sc = Math.max(22, fb.cols - 24);

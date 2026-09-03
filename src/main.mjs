@@ -29,6 +29,9 @@ import { extractOsz } from './net/osz.mjs';
 import { clampVolume, parseVolumeArg } from './volume.mjs';
 import { parseBackgroundFlag, backgroundVisible } from './render/background.mjs';
 import {
+  normalizeMods, consumeModFlag, applyModFlag, applyModsToDifficulty, modsAcronyms,
+} from './core/mods.mjs';
+import {
   defaultSongsDir, osuSongsDir, osuSongsPresent, isOsuSongsPath,
   libraryRoots, mergeMaps, parseImportOsuArg,
 } from './library.mjs';
@@ -65,6 +68,8 @@ function parseArgs(argv, cfg) {
     effectVolume: clampVolume(cfg.effectVolume, 1),
     showBackground: backgroundVisible(cfg.showBackground),
     bgFlag: null,                 // 'on' | 'off' when they passed a flag this run
+    mods: normalizeMods(cfg.mods),
+    modsFlag: false,              // true when they passed a mod flag this run
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -81,6 +86,13 @@ function parseArgs(argv, cfg) {
     else {
       const bg = parseBackgroundFlag(a);
       if (bg !== null) { out.showBackground = bg; out.bgFlag = bg ? 'on' : 'off'; continue; }
+      const mod = consumeModFlag(a, argv[i + 1]);
+      if (mod) {
+        out.mods = applyModFlag(out.mods, mod);
+        out.modsFlag = true;
+        i += mod.consume;
+        continue;
+      }
       const imp = parseImportOsuArg(a);
       if (imp === 'on') { out.importOsu = true; out.importOsuFlag = 'on'; }
       else if (imp === 'off') { out.importOsu = false; out.importOsuFlag = 'off'; }
@@ -211,6 +223,10 @@ ${bold('options')}
       --volume <n>   master volume 0–100 ${dim('(remembered)')}
       --no-bg        hide beatmap backgrounds ${dim('(remembered, b toggles)')}
       --bg           show beatmap backgrounds again
+      --hd           Hidden ${dim('(remembered, h toggles in song select)')}
+      --hr           Hard Rock ${dim('(remembered, r toggles in song select)')}
+      --mods <list>  e.g. hd,hr or hdhr ${dim('(remembered)')}
+      --nm           no mods
       --songs <dir>  where downloads go ${dim('(default ~/osuterminal/Songs, remembered)')}
       --no-import-osu  stop including the osu! Songs folder
       --search <q>   search the mirrors and print results
@@ -226,7 +242,7 @@ ${bold('in game')}
   b                  hide / show beatmap background
   esc                pause, then r retry or q song select
   after a map        results: r retry, enter song select
-  song select        \\ download more   / filter this list
+  song select        h Hidden   r Hard Rock   \\ download   / filter
 
 config: ${dim(CONFIG)}
 `);
@@ -248,6 +264,7 @@ async function main() {
   if (process.argv.includes('--volume')) saveConfig({ masterVolume: args.masterVolume });
   if (args.bgFlag === 'on') saveConfig({ showBackground: true });
   if (args.bgFlag === 'off') saveConfig({ showBackground: false });
+  if (args.modsFlag) saveConfig({ mods: args.mods });
 
   if (args.importOsuFlag === 'on') saveConfig({ importOsu: true });
   if (args.importOsuFlag === 'off') saveConfig({ importOsu: false });
@@ -329,19 +346,27 @@ async function main() {
 
   // loop so tab can bounce out to the downloader and q from pause comes back here
   for (;;) {
-    const action = await selectSong(maps);
+    const action = await selectSong(maps, {
+      mods: args.mods,
+      onMods: (mods) => { args.mods = mods; saveConfig({ mods }); },
+    });
     if (!action) return;
     if (action.type === 'browse') {
       const got = await browseOnline(args.songs);
       if (got) maps = await loadLibrary(args.songs, { importOsu: args.importOsu });
       continue;
     }
+    if (action.mods) args.mods = action.mods;
     const result = await play(action.map, args);
     if (result?.quitApp) return;
   }
 }
 
 const clampIndex = (i, n) => Math.max(0, Math.min(n - 1, i));
+
+function fmtStat(n) {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 10) / 10);
+}
 
 async function printSearch(query) {
   process.stdout.write(`  searching for ${bold(query)}... `);
@@ -370,9 +395,10 @@ async function getById(id, songsDir) {
 }
 
 async function play(chosen, args) {
-  const d = chosen.difficulty;
-  console.log(bold(`\n${chosen.artist} - ${chosen.title}`) + dim(`  [${chosen.diffName}]`));
-  console.log(dim(`CS${d.cs} AR${d.ar} OD${d.od}  ${chosen.hitObjects.length} objects`));
+  const d = applyModsToDifficulty(chosen.difficulty, args.mods);
+  const tag = modsAcronyms(args.mods);
+  console.log(bold(`\n${chosen.artist} - ${chosen.title}`) + dim(`  [${chosen.diffName}]${tag ? ' +' + tag : ''}`));
+  console.log(dim(`CS${fmtStat(d.cs)} AR${fmtStat(d.ar)} OD${fmtStat(d.od)}  ${chosen.hitObjects.length} objects`));
 
   try { await access(chosen.audioPath); }
   catch { throw new Error(`Audio file missing:\n  ${chosen.audioPath}`); }
@@ -388,6 +414,7 @@ async function play(chosen, args) {
     audioOffsetMs: args.offset, sensitivity: args.sens, aimMode: args.aimMode, keys: args.keys,
     masterVolume: args.masterVolume, musicVolume: args.musicVolume, effectVolume: args.effectVolume,
     showBackground: args.showBackground,
+    mods: args.mods,
     onVolume: (v) => saveConfig(v),
     onBackground: (showBackground) => saveConfig({ showBackground }),
   });

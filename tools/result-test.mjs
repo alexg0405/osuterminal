@@ -88,6 +88,11 @@ drawResult(fb, map, summary);
 const text = fbText(fb);
 check(text.includes('nekodex - circles!'), 'song title is on the panel');
 check(text.includes('[Normal]'), 'difficulty is on the panel');
+{
+  const modsFb = new Framebuffer(80, 24);
+  drawResult(modsFb, map, { ...summary, mods: 'HDHR' });
+  check(fbText(modsFb).includes('+HDHR'), 'results show the mods that were on');
+}
 check(text.includes('94.00%'), 'accuracy percentage is shown');
 check(text.includes('1,234,567'), 'score is shown');
 check(text.includes('142x'), 'max combo is shown');

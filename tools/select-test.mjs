@@ -127,6 +127,22 @@ check(result === null, 'esc in browse mode quits');
   const r = await p2;
   check(r?.type === 'play' && !!r.map, 'enter returns the highlighted map');
 }
+
+{
+  const pMods = selectSong(maps);
+  check(shows('h HD') && shows('r HR'), 'footer advertises Hidden and Hard Rock');
+  check(!shows('+HD'), 'starts with no mods');
+  key('h');
+  check(shows('+HD'), 'h enables Hidden');
+  key('r');
+  check(shows('+HDHR') || (shows('+HD') && shows('HR')), 'r enables Hard Rock on top');
+  check(shows('CS5.6'), 'HR rewrites the listed CS');
+  key('h');
+  check(shows('+HR') && !shows('+HDHR'), 'h again turns Hidden off');
+  key('\r');
+  const r = await pMods;
+  check(r?.type === 'play' && r.mods?.hardRock && !r.mods?.hidden, 'play action carries the current mods');
+}
 {
   const p3 = selectSong(maps);
   key('\t');
