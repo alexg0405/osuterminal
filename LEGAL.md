@@ -21,10 +21,11 @@ or sponsored by ppy Pty Ltd or osu!. For trademark questions, ppy's contact is
 ## This program's code
 
 The client (parser, renderer, audio mixer, installer) is original work under the
-MIT licence in `LICENSE`. Gameplay values (hit windows, stacking, grades) follow
-public osu!standard behaviour; they are not a copy of the closed-source stable
-client. Default hitsounds are **synthesized** here. We do not copy samples out of
-an osu! install.
+MIT licence in `LICENSE`. 100-hit windows follow osu!standard. 300s are 30ms
+wider and 50s are 30ms tighter than stable so blues are easier and yellows are
+rarer. Other gameplay values (stacking, grades) follow public osu!standard
+behaviour; they are not a copy of the closed-source stable client. Default
+hitsounds are **synthesized** here. We do not copy samples out of an osu! install.
 
 ## Maps and music
 

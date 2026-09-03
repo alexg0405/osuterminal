@@ -13,27 +13,33 @@ const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\
 let failures = 0;
 const check = (c, m) => { if (!c) failures++; ok(c, m); };
 
-const stable300 = (od) => 80 - 6 * od;
+const stable100 = (od) => 140 - 8 * od;
+const easy300 = (od) => 110 - 6 * od;
+const tight50 = (od) => 170 - 10 * od;
 
 console.log('\n=== hit windows ===');
 {
   const w = hitWindows(5);
-  check(w.ok === 140 - 8 * 5, 'OD5 100 window matches osu!stable');
-  check(w.meh === 200 - 10 * 5, 'OD5 50 window matches osu!stable');
-  check(w.great === stable300(5), 'OD5 300 is 80-6*OD (±50ms)');
-  check(w.great === 50, 'OD5 300 is ±50ms');
+  check(w.ok === stable100(5), 'OD5 100 window matches osu!stable');
+  check(w.meh === tight50(5), 'OD5 50 window is 30ms tighter than stable');
+  check(w.great === easy300(5), 'OD5 300 is 110-6*OD (±80ms)');
+  check(w.great === 80, 'OD5 300 is ±80ms');
+  check(w.great > 50, 'OD5 300 is wider than osu!stable ±50ms');
+  check(w.meh < 150, 'OD5 50 is tighter than osu!stable ±150ms');
   check(w.great < w.ok && w.ok < w.meh, '300 < 100 < 50');
 }
 {
   const w = hitWindows(8);
-  check(w.great === 32, `OD8 300 is ±32ms (got ${w.great})`);
-  check(w.great === stable300(8), 'OD8 300 matches osu!stable');
-  check(w.great < w.ok, 'OD8 300 still sits inside 100');
+  check(w.great === 62, `OD8 300 is ±62ms (got ${w.great})`);
+  check(w.great === easy300(8), 'OD8 300 uses the easier curve');
+  check(w.meh === 90, `OD8 50 is ±90ms (got ${w.meh})`);
+  check(w.great < w.ok && w.ok < w.meh, 'OD8 300 sits inside 100');
 }
 {
   const w = hitWindows(10);
-  check(w.great === 20, `OD10 300 is ±20ms (got ${w.great})`);
-  check(w.great === stable300(10), 'OD10 300 matches osu!stable');
+  check(w.great === 50, `OD10 300 is ±50ms (got ${w.great})`);
+  check(w.great === easy300(10), 'OD10 300 uses the easier curve');
+  check(w.meh === 70, `OD10 50 is ±70ms (got ${w.meh})`);
   check(w.great <= w.ok - 8, 'OD10 300 is clamped inside 100');
 }
 {

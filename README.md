@@ -142,7 +142,7 @@ those samples back.
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
 note lock, stacking. Clicks have to land on the circle (same radius as the disc) and
-300/100/50 windows match osu!stable. Streams are overlapping discs with combo numbers
+300/100/50 windows: 100 matches osu!stable, 300 is 30ms easier, 50 is 30ms tighter. Streams are overlapping discs with combo numbers
 and follow points, the way osu draws them; stacked notes stay rings that spread
 up-left, and the next hit shows how many are left. Hitsounds load from the beatmap folder and fall back to synthesized
 ones when a map doesn't ship them. Beatmap backgrounds (jpg/png) render pixelated and

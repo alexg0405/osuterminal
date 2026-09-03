@@ -16,13 +16,14 @@ export const HitObjectType = {
 
 const NUM = (v, d = 0) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
 
-// one-sided hit windows in ms. same curves as osu!stable:
-//   300 = 80-6*OD, 100 = 140-8*OD, 50 = 200-10*OD
+// one-sided hit windows in ms. 100 matches osu!stable (140-8*OD).
+// 300 is 30ms wider than stable (110-6*OD) so blues are easier.
+// 50 is 30ms tighter (170-10*OD) so yellows are a thin band before a miss.
 // 300 is clamped inside 100 so a high OD can never make a 300 wider than a 100.
 export function hitWindows(od) {
   const ok = 140 - 8 * od;
-  const meh = 200 - 10 * od;
-  const great = Math.min(80 - 6 * od, ok - 8);
+  const meh = Math.max(ok + 8, 170 - 10 * od);
+  const great = Math.min(110 - 6 * od, ok - 8);
   return { great, ok, meh };
 }
 
