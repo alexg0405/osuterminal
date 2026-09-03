@@ -3,6 +3,14 @@
 Unofficial osu!standard in a terminal, with mouse aim and hit circles. Not
 affiliated with ppy Pty Ltd or osu!.
 
+
+https://github.com/user-attachments/assets/25c8ed7c-f246-4937-aab8-5ef5f2c32c50
+
+
+<img width="1919" height="1003" alt="image" src="https://github.com/user-attachments/assets/6a03de22-8838-4d79-bae6-7502eff79dca" />
+
+
+
 Maps you download land in `~/osuterminal/Songs`. Two easy beginner maps (Warmup and
 First Steps) ship with the package so you can play immediately. If you already have
 osu! installed, `osuterminal usesongs` will also list those maps in place — nothing
@@ -11,7 +19,11 @@ is copied, and it is off until you choose it.
 ## install
 
 First thing, try
-```npm install -g osuterminal
+```npm install -g osuterminal  
+
+
+
+
 npm install -g osuterminal
 ```
 
