@@ -1,7 +1,9 @@
 // volume helpers: clamp, --volume parsing, 5% steps, mix into engine gains.
 import {
   clampVolume, parseVolumeArg, stepVolume, volumePercent, mixGains, VOLUME_STEP,
+  HITSOUND_BOOST, hitsoundSampleGain,
 } from '../src/volume.mjs';
+import { HitsoundBank } from '../src/audio/hitsounds.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
 let failures = 0;
@@ -36,9 +38,30 @@ check(volumePercent(1) === '100%', 'full label');
 
 const mixed = mixGains(0.8, 0.5, 1);
 check(Math.abs(mixed.music - 0.4) < 1e-9, 'music gain is master * music');
-check(Math.abs(mixed.effect - 0.8) < 1e-9, 'effect gain is master * hitsounds');
+check(Math.abs(mixed.effect - 0.8 * HITSOUND_BOOST) < 1e-9,
+  `effect gain is master * hitsounds * ${HITSOUND_BOOST} boost`);
+check(HITSOUND_BOOST > 1, 'hitsounds are mixed hotter than 1:1');
+{
+  const even = mixGains(0.8, 1, 1);
+  check(even.effect > even.music, 'at 100% sliders, hitsounds sit above the song');
+}
 const silent = mixGains(0, 1, 1);
 check(silent.music === 0 && silent.effect === 0, 'master 0 mutes both');
+
+check(hitsoundSampleGain(100) === 1, 'timing volume 100 is full sample gain');
+check(hitsoundSampleGain(80) === 0.8, 'timing volume 80 is 80%');
+check(hitsoundSampleGain(0) === 0, 'timing volume 0 is silent');
+check(hitsoundSampleGain(undefined) === 1, 'missing timing volume defaults to 100');
+check(hitsoundSampleGain(100) > 0.9, 'the old 0.9 fudge is gone');
+
+console.log('\n=== synthesized hitsounds ===');
+{
+  const bank = await HitsoundBank.forBeatmap({ dir: '/tmp/osuterminal-no-samples' }, 44100);
+  const samples = await bank.resolve(1, 1, 0);
+  let peak = 0;
+  for (const s of samples) for (const v of s.pcm) peak = Math.max(peak, Math.abs(v));
+  check(peak > 12000, `fallback hitnormal is loud (peak ${peak})`);
+}
 
 if (failures) {
   console.log(`\n${failures} failed`);

@@ -12,7 +12,7 @@ import { applyStacking } from './core/stack.mjs';
 import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
 import { drawReverseArrow } from './render/arrow.mjs';
 import { rankFromCounts } from './grade.mjs';
-import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
+import { clampVolume, stepVolume, volumePercent, mixGains, hitsoundSampleGain } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
 import { JUDGE, drawJudgementLegend, drawHitErrorBar, meanError, drawLiveRank } from './render/hud.mjs';
 import {
@@ -254,7 +254,7 @@ export class Game {
       const h = src[i];
       const tp = this.map.effectiveAt(h.time);
       this.objects[i].samples = await bank.resolve(tp?.sampleSet ?? 1, h.hitSound ?? 1, tp?.sampleIndex ?? 0);
-      this.objects[i].sampleGain = ((tp?.volume ?? 100) / 100) * 0.9;
+      this.objects[i].sampleGain = hitsoundSampleGain(tp?.volume);
     }
     [this.tickSample] = await bank.resolve(this.map.timingPoints[0]?.sampleSet ?? 1, 0, 0);
     this.hitsoundStats = { loaded: bank.loaded, synthesized: bank.synthesized };

@@ -3,6 +3,9 @@
 // the three sliders from drifting off the 5% grid.
 
 export const VOLUME_STEP = 0.05;
+// hitsounds sit under the song at 1:1, especially the synthesized fallbacks.
+// this is applied after the hitsounds slider so 100% is "loud enough", not "equal".
+export const HITSOUND_BOOST = 1.75;
 
 export function clampVolume(v, fallback = 1) {
   const n = Number(v);
@@ -30,6 +33,13 @@ export function mixGains(master, music, effect) {
   const m = clampVolume(master, 0.8);
   return {
     music: m * clampVolume(music, 1),
-    effect: m * clampVolume(effect, 1),
+    effect: m * clampVolume(effect, 1) * HITSOUND_BOOST,
   };
+}
+
+// timing-point sample volume is 0–100. used to be * 0.9 on top, which buried hits.
+export function hitsoundSampleGain(volume) {
+  const n = Number(volume);
+  const pct = Number.isFinite(n) ? n : 100;
+  return Math.max(0, Math.min(1, pct / 100));
 }
