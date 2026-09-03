@@ -2,17 +2,23 @@
 // spinners aren't done, they need rotation tracking which is a separate thing.
 
 import { Framebuffer } from './render/framebuffer.mjs';
+import { cursorOnObject } from './core/beatmap.mjs';
 import { Playfield } from './render/playfield.mjs';
 import { Input } from './input/input.mjs';
 import { AudioEngine } from './audio/engine.mjs';
 import { HitsoundBank } from './audio/hitsounds.mjs';
-import { SliderPath, sliderTiming, sliderTicks, sliderRepeats } from './core/slider.mjs';
+import { SliderPath, sliderTiming, sliderTicks, sliderRepeats, reverseDirection } from './core/slider.mjs';
 import { applyStacking } from './core/stack.mjs';
 import { drawHitCircle, comboVisible } from './render/hitcircle.mjs';
+import { drawReverseArrow } from './render/arrow.mjs';
 import { rankFromCounts } from './grade.mjs';
 import { clampVolume, stepVolume, volumePercent, mixGains } from './volume.mjs';
 import { loadBackground, coverScale, BG_DIM, backgroundVisible, backgroundLabel } from './render/background.mjs';
-import { JUDGE, drawJudgementLegend, drawHitErrorBar } from './render/hud.mjs';
+import { JUDGE, drawJudgementLegend, drawHitErrorBar, meanError, drawLiveRank } from './render/hud.mjs';
+import {
+  normalizeMods, applyModsToDifficulty, flipY, modsAcronyms, modsLabel, scoreMultiplier,
+  objectAlpha, approachAlpha,
+} from './core/mods.mjs';
 import { stdout } from 'node:process';
 
 const CSI = '\x1b[';
@@ -48,10 +54,12 @@ export class Game {
   constructor(beatmap, {
     audioOffsetMs = 0, sensitivity = 1.0, aimMode = 'absolute', keys = ['z', 'x'],
     masterVolume = 0.8, musicVolume = 1, effectVolume = 1, onVolume = null,
-    showBackground = true, onBackground = null,
+    showBackground = true, onBackground = null, mods = null,
   } = {}) {
     this.map = beatmap;
-    this.diff = beatmap.difficulty;
+    this.mods = normalizeMods(mods);
+    this.diff = applyModsToDifficulty(beatmap.difficulty, this.mods);
+    this.scoreMul = scoreMultiplier(this.mods);
     this.audioOffsetMs = audioOffsetMs;
     this.sensitivity = sensitivity;
     this.aimMode = aimMode;
@@ -65,17 +73,19 @@ export class Game {
     this.volumeToast = null;
 
     const src = beatmap.hitObjects.filter((o) => !o.isSpinner);
+    const fy = (y) => this.mods.hardRock ? flipY(y) : y;
     this.objects = src.map((o, i) => {
       const base = {
         index: i, kind: o.isSlider ? 'slider' : 'circle',
-        x: o.x, y: o.y, time: o.time, endTime: o.time,
+        x: o.x, y: fy(o.y), time: o.time, endTime: o.time,
         combo: 0, comboColour: 0,
         headResult: null, headAt: 0, error: 0,
         result: null, resultAt: 0,
       };
       if (!o.isSlider) return base;
 
-      const path = new SliderPath(o.curveType, o.points, o.pixelLength);
+      const points = (o.points ?? []).map((p) => ({ x: p.x, y: fy(p.y) }));
+      const path = new SliderPath(o.curveType, points, o.pixelLength);
       const timing = sliderTiming(beatmap, o);
       return {
         ...base,
@@ -155,13 +165,15 @@ export class Game {
   #addCombo(points) {
     this.combo++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
-    this.score += Math.round(points * (1 + Math.max(0, this.combo - 1) / 25));
+    this.score += Math.round(points * (1 + Math.max(0, this.combo - 1) / 25) * this.scoreMul);
   }
   #breakCombo() { this.combo = 0; }
 
   // ------------------------------------------------------------- judgement
   // runs on every tap. at is when the input actually arrived, not the frame time.
-  handleHit(at) {
+  // cursor is osu-space; if it is given, the tap is ignored unless it lands on
+  // the object's disc (same as osu — a miss-aim does not consume the note).
+  handleHit(at, cursor) {
     const t = this.timeAtWall(at);
     const w = this.diff.windows;
 
@@ -173,6 +185,7 @@ export class Game {
 
     const dt = t - o.time;
     if (dt < -w.meh || dt > w.meh) return null;
+    if (!cursorOnObject(cursor, o, this.diff.radius)) return null;
 
     const ad = Math.abs(dt);
     const kind = ad <= w.great ? 'GREAT' : ad <= w.ok ? 'OK' : 'MEH';
@@ -189,8 +202,7 @@ export class Game {
     else {
       this.#addCombo(o.kind === 'slider' ? 30 : JUDGE[kind].score);
       this.#playHitsound(o);
-      this.errors.push(dt);
-      if (this.errors.length > 48) this.errors.shift();
+      this.errors.push({ dt, at: this.time });
     }
 
     // circles finish right away, sliders stay live until the tail
@@ -378,7 +390,10 @@ export class Game {
     this.frameWall = nowMs();
     let quit = false, paused = false, restart = false, toMenu = false, quitApp = false;
 
-    input.on('hit', ({ at }) => { if (!paused) this.handleHit(at); });
+    input.on('hit', ({ at }) => {
+      if (paused) return;
+      this.handleHit(at, pf.toOsu(input.cellX, input.cellY * 2));
+    });
     const setPaused = (v) => {
       if (v === paused) return;
       paused = v;
@@ -492,10 +507,12 @@ export class Game {
   #drawObject(fb, pf, o, rad, pre, fade) {
     const dt = o.time - this.time;
     const [cr, cg, cb] = COMBO_COLOURS[o.comboColour];
-    const alpha = Math.max(0, Math.min(1, (pre - dt) / fade));
-    if (alpha <= 0) return;
+    const alpha = objectAlpha(dt, pre, fade, this.mods.hidden);
+    const acA = approachAlpha(dt, pre, fade);
+    const liveSlider = o.kind === 'slider' && this.time >= o.time && this.time <= o.endTime && !o.finalized;
+    if (alpha <= 0 && !liveSlider && !o.result && !(dt > 0 && acA > 0 && !o.headResult)) return;
 
-    if (o.kind === 'slider') this.#drawSlider(fb, pf, o, rad, alpha, [cr, cg, cb]);
+    if ((alpha > 0 || liveSlider) && o.kind === 'slider') this.#drawSlider(fb, pf, o, rad, alpha, [cr, cg, cb]);
 
     const cx = pf.sx(o.x), cy = pf.sy(o.y);
 
@@ -508,16 +525,21 @@ export class Game {
       return;
     }
 
-    // keep drawing the head circle until the head is judged
+    // keep drawing the head circle until the head is judged. Hidden fades the
+    // disc out early; the approach circle still shrinks in so you have a cue.
     if (!o.headResult) {
-      const stacked = (o.stackSize ?? 1) >= 2;
-      const remaining = stacked && o.index === this.nextIndex ? this.#stackRemaining(o) : 0;
-      const next = this.objects[this.nextIndex];
-      const combo = remaining >= 2 || !comboVisible(o, next, this.diff.radius) ? null : o.combo;
-      drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
-        stacked, combo, count: remaining >= 2 ? remaining : null,
-      });
-      if (dt > 0) fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, alpha * 0.75);
+      if (alpha > 0) {
+        const stacked = (o.stackSize ?? 1) >= 2;
+        const remaining = stacked && o.index === this.nextIndex ? this.#stackRemaining(o) : 0;
+        const next = this.objects[this.nextIndex];
+        const combo = remaining >= 2 || !comboVisible(o, next, this.diff.radius) ? null : o.combo;
+        drawHitCircle(fb, cx, cy, rad, [cr, cg, cb], alpha, {
+          stacked, combo, count: remaining >= 2 ? remaining : null,
+        });
+      }
+      if (dt > 0 && acA > 0) {
+        fb.strokeCircle(cx, cy, rad * (1 + 3 * (dt / pre)), 1.2, cr, cg, cb, acA * 0.75);
+      }
     }
   }
 
@@ -525,38 +547,44 @@ export class Game {
     const path = o.path;
     // stamp discs along the path. spacing is based on the radius so the body stays
     // solid without doing one disc per pixel, which would be way too slow on long ones.
-    const step = Math.max(1.2, rad / 2.5);
-    const n = Math.max(2, Math.ceil(pf.len(path.length) / step));
-    const bodyA = alpha * 0.5;
+    if (alpha > 0) {
+      const step = Math.max(1.2, rad / 2.5);
+      const n = Math.max(2, Math.ceil(pf.len(path.length) / step));
+      const bodyA = alpha * 0.5;
 
-    for (let i = 0; i <= n; i++) {
-      const p = path.positionAt(i / n);
-      fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.92, cr * 0.22, cg * 0.22, cb * 0.22, bodyA);
+      for (let i = 0; i <= n; i++) {
+        const p = path.positionAt(i / n);
+        fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.92, cr * 0.22, cg * 0.22, cb * 0.22, bodyA);
+      }
+      for (let i = 0; i <= n; i++) {
+        const p = path.positionAt(i / n);
+        fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.34, cr * 0.55, cg * 0.55, cb * 0.55, bodyA);
+      }
+
+      // tail marker
+      const tail = path.positionAt(o.slides % 2 === 1 ? 1 : 0);
+      fb.strokeCircle(pf.sx(tail.x), pf.sy(tail.y), rad * 0.8, 1.2, cr, cg, cb, alpha * 0.7);
+
+      // pending ticks
+      for (let i = o.nextTick; i < o.ticks.length; i++) {
+        const tk = o.ticks[i];
+        if (tk.time - this.time > this.diff.preempt) break;
+        fb.fillCircle(pf.sx(tk.x), pf.sy(tk.y), Math.max(1, rad * 0.13), 255, 255, 255, alpha * 0.75);
+      }
+
+      // pending reverse arrows on top. they point the way the ball goes after the bounce.
+      for (let i = o.nextRepeat; i < o.repeats.length; i++) {
+        const rp = o.repeats[i];
+        const dir = reverseDirection(path, rp.atEnd);
+        drawReverseArrow(
+          fb, pf.sx(rp.x), pf.sy(rp.y), dir.dx, dir.dy,
+          Math.max(5, rad * 0.95), 255, 255, 255, alpha * 0.95,
+        );
+      }
     }
-    for (let i = 0; i <= n; i++) {
-      const p = path.positionAt(i / n);
-      fb.fillCircle(pf.sx(p.x), pf.sy(p.y), rad * 0.34, cr * 0.55, cg * 0.55, cb * 0.55, bodyA);
-    }
 
-    // tail marker
-    const tail = path.positionAt(o.slides % 2 === 1 ? 1 : 0);
-    fb.strokeCircle(pf.sx(tail.x), pf.sy(tail.y), rad * 0.8, 1.2, cr, cg, cb, alpha * 0.7);
-
-    // pending repeat arrows
-    for (let i = o.nextRepeat; i < o.repeats.length; i++) {
-      const r = o.repeats[i];
-      fb.strokeCircle(pf.sx(r.x), pf.sy(r.y), rad * 0.5, 1.4, 255, 255, 255, alpha * 0.8);
-      break;   // only draw the next one, same as osu
-    }
-
-    // pending ticks
-    for (let i = o.nextTick; i < o.ticks.length; i++) {
-      const tk = o.ticks[i];
-      if (tk.time - this.time > this.diff.preempt) break;
-      fb.fillCircle(pf.sx(tk.x), pf.sy(tk.y), Math.max(1, rad * 0.13), 255, 255, 255, alpha * 0.75);
-    }
-
-    // ball and follow circle while the slider is going
+    // ball and follow circle while the slider is going. Hidden keeps these
+    // after the body has faded so you can still track.
     if (this.time >= o.time && this.time <= o.endTime && !o.finalized) {
       const b = o.path.positionAt(sliderProgress(o, this.time));
       const bx = pf.sx(b.x), by = pf.sy(b.y);
@@ -581,17 +609,22 @@ export class Game {
     const acc = (this.accuracy * 100).toFixed(2);
     const m = this.map;
 
-    fb.text(1, 0, `${m.artist} - ${m.title} [${m.diffName}]`.slice(0, fb.cols - 24), 0x9aa4b8);
+    const modsTag = modsAcronyms(this.mods);
+    const title = modsTag
+      ? `${m.artist} - ${m.title} [${m.diffName}] +${modsTag}`
+      : `${m.artist} - ${m.title} [${m.diffName}]`;
+    fb.text(1, 0, title.slice(0, fb.cols - 24), 0x9aa4b8);
     const right = `${String(this.score).padStart(8, '0')}   ${acc}%`;
     fb.text(fb.cols - right.length - 1, 0, right, 0xffffff);
+    drawLiveRank(fb, c, 1);
 
-    fb.text(1, fb.rows - 1, `${this.combo}x`, this.combo > 0 ? 0xffd257 : 0x555555);
     const help = 'esc pause';
     fb.text(fb.cols - help.length - 1, fb.rows - 1, help, 0x5a6272);
     // coloured squares sit on the row under the error bar so 300/100/50/X
     // match the ticks above instead of being a grey blob of numbers.
     drawJudgementLegend(fb, c, fb.rows - 2);
-    drawHitErrorBar(fb, this.errors, this.diff.windows);
+    drawHitErrorBar(fb, this.errors, this.diff.windows, this.time);
+    fb.drawHudCombo(this.combo, this.combo > 0 ? 0xffd257 : 0x555555);
 
     const filled = Math.round(this.progress * fb.cols);
     for (let x = 0; x < fb.cols; x++) {
@@ -610,9 +643,10 @@ export class Game {
     fb.textCentered(row + 3, `[/]  music     ${volumePercent(this.musicVolume)}`, 0x8a94a8);
     fb.textCentered(row + 4, `,/.  hitsounds ${volumePercent(this.effectVolume)}`, 0x8a94a8);
     fb.textCentered(row + 5, `b    background ${backgroundLabel(this.showBackground)}`, 0x8a94a8);
-    fb.textCentered(row + 7, 'esc  resume', 0xc8d0dc);
-    fb.textCentered(row + 8, 'r    retry', 0x8a94a8);
-    fb.textCentered(row + 9, 'q    menu', 0x8a94a8);
+    fb.textCentered(row + 6, `mods ${modsLabel(this.mods)}`, 0x8a94a8);
+    fb.textCentered(row + 8, 'esc  resume', 0xc8d0dc);
+    fb.textCentered(row + 9, 'r    retry', 0x8a94a8);
+    fb.textCentered(row + 10, 'q    menu', 0x8a94a8);
   }
 
   // shown while song time is negative, so during the lead in
@@ -635,8 +669,9 @@ export class Game {
     return {
       score: this.score, maxCombo: this.maxCombo, accuracy: this.accuracy,
       counts: { ...c },
-      meanError: this.errors.length ? this.errors.reduce((a, b) => a + b, 0) / this.errors.length : 0,
+      meanError: meanError(this.errors),
       rank: rankFromCounts(c),
+      mods: modsAcronyms(this.mods),
     };
   }
 }

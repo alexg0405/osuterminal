@@ -73,14 +73,19 @@ osuterminal --calibrate           # measure audio offset
 osuterminal --keys df             # rebind tap keys
 osuterminal --volume 70           # master volume 70% (remembered)
 osuterminal --no-bg               # hide beatmap backgrounds (remembered)
+osuterminal --hd                  # Hidden (remembered)
+osuterminal --hr                  # Hard Rock (remembered)
+osuterminal --mods hdhr           # both
 osuterminal --list
 ```
 
-z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter (gold S, green A, and so on). r retries from there too; enter goes back to song select.
+z / x / mouse to hit, esc to pause. from the pause screen r retries and q goes back to song select. a live SS/S/A/B/C/D sits in the top right while you play (same colours as the ranking panel). combo is the big number in the bottom left. finishing a map opens a results screen with your score, accuracy, hit counts, and a giant rank letter. r retries from there too; enter goes back to song select.
 
 `-` / `=` master volume, `[` / `]` music, `,` / `.` hitsounds, `b` background. they work while playing and while paused, and they save to `~/.osuterminal.json`. `--volume 70` sets master to 70% (or `--volume 0.4` for 40%). `--no-bg` hides beatmap pictures.
 
-Maps that ship a jpg/png get that picture behind the playfield, cover-cropped to the terminal and dimmed so circles still read. it is nearest-neighbour on purpose, so it looks pixelated. `b` hides it (and `--no-bg` starts hidden); both are remembered in `~/.osuterminal.json`. `--bg` turns it back on. video and storyboards are still stripped; maps without an image stay on the dark playfield.
+Maps that ship a jpg/png get that picture behind the playfield, cover-cropped to the terminal and dimmed hard so circles still read on bright art. it is nearest-neighbour on purpose, so it looks pixelated. `b` hides it (and `--no-bg` starts hidden); both are remembered in `~/.osuterminal.json`. `--bg` turns it back on. video and storyboards are still stripped; maps without an image stay on the dark playfield.
+
+`h` and `r` on song select toggle Hidden and Hard Rock. `--hd` / `--hr` / `--mods hdhr` do the same from the command line, `--nm` clears them, and the last combo is remembered. Hidden fades the circles out before you have to hit them (approach circles stay). Hard Rock multiplies CS/AR/OD/HP by 1.4 (capped at 10) and flips the playfield vertically.
 
 `\` from song select opens the downloader (the search in that screenshot). `/` filters the list you already have. in the downloader, `\` toggles the search field so w/s can move the results without typing into the query.
 
@@ -136,13 +141,16 @@ those samples back.
 ## what works
 
 Circles and sliders, all four curve types, ticks, repeats, follow circle tracking,
-note lock, stacking. Hit circles are rings rather than solid discs, so streams and
+note lock, stacking. Clicks have to land on the circle (same radius as the disc) and
+300/100/50 windows match osu!stable. Hit circles are rings rather than solid discs, so streams and
 stacks stay countable; a pile also spreads up-left and the next hit shows how many
 are left. Hitsounds load from the beatmap folder and fall back to synthesized
 ones when a map doesn't ship them. Beatmap backgrounds (jpg/png) render pixelated and
-dimmed at terminal resolution. Volume is three sliders: master, music, hitsounds.
+heavily dimmed at terminal resolution. Volume is three sliders: master, music, hitsounds.
+Hidden and Hard Rock work: HD fades objects out before the hit, HR raises CS/AR/OD/HP
+and flips the field.
 
-Not done yet: spinners, HP drain, breaks, mods.
+Not done yet: spinners, HP drain, breaks, DT/EZ/FL and the rest of the mod list.
 
 ## notes on how it works
 
@@ -195,6 +203,7 @@ cells give a CS4 circle about 11x11 pixels. Halve the font and it's 23x23.
 
 ```
 src/core/beatmap.mjs       .osu parser, difficulty math
+src/core/mods.mjs          Hidden / Hard Rock
 src/core/slider.mjs        curve eval, length fitting, ticks
 src/audio/engine.mjs       streaming mixer + the clock
 src/audio/hitsounds.mjs    sample loading and synthesis
@@ -203,6 +212,7 @@ src/audio/waveout.mjs      simple player, only calibration uses it
 src/render/framebuffer.mjs half block framebuffer
 src/render/playfield.mjs   512x384 onto the terminal, HUD insets
 src/render/hitcircle.mjs   rings so overlapping notes stay countable
+src/render/arrow.mjs       slider reverse chevrons
 src/render/background.mjs  beatmap jpg/png, cover-crop, dim
 src/input/input.mjs        the input split described above
 src/volume.mjs             master / music / hitsound sliders
@@ -234,6 +244,8 @@ node tools/browse-test.mjs   # download search keys
 node tools/playfield-test.mjs # notes stay on screen vertically
 node tools/volume-test.mjs   # volume clamp / step / mix
 node tools/background-test.mjs # beatmap bg parse + pixelate
+node tools/mods-test.mjs     # Hidden / Hard Rock math
+node tools/arrow-test.mjs    # slider reverse chevrons
 node tools/install-test.mjs  # bootstrap script + LEGAL.md checks
 node tools/library-test.mjs  # songs dir + osu! import paths
 node tools/decode-test.mjs   # wav resample to 44100 stereo

@@ -129,6 +129,39 @@ export class Framebuffer {
     }
   }
 
+  // live combo in the bottom-left, same 5×7 glyphs as on-circle labels but
+  // much bigger. overlays the playfield the way osu's combo counter does.
+  drawHudCombo(combo, colour = 0xffd257) {
+    const str = String(Math.max(0, Math.floor(Number(combo) || 0)));
+    const helpReserve = 12;
+    let ps = hudComboPixelSize(this.rows);
+    let { w, h } = comboGlyphSize(str, ps);
+    const maxW = Math.max(DIGIT_W * 2, this.cols - helpReserve - 2);
+    while (ps > 2 && w > maxW) {
+      ps--;
+      ({ w, h } = comboGlyphSize(str, ps));
+    }
+    const x0 = 1;
+    const y0 = Math.max(0, this.height - h);
+    const r0 = Math.max(0, Math.floor(y0 / 2));
+    const r1 = Math.min(this.rows - 1, Math.floor((y0 + h - 1) / 2));
+    const c0 = Math.max(0, x0);
+    const c1 = Math.min(this.cols - helpReserve - 1, x0 + w - 1);
+    for (let row = r0; row <= r1; row++) {
+      for (let col = c0; col <= c1; col++) {
+        this.txtChar[row * this.cols + col] = 0;
+      }
+    }
+    const r = (colour >> 16) & 255, g = (colour >> 8) & 255, b = colour & 255;
+    for (let i = 0; i < str.length; i++) {
+      const d = str.charCodeAt(i) - 48;
+      if (d < 0 || d > 9) continue;
+      const gx = x0 + i * (DIGIT_W + DIGIT_GAP) * ps;
+      blitDigit(this, gx, y0, DIGITS[d], ps, r, g, b, 1);
+    }
+    return { x0, y0, w, h, pixelSize: ps };
+  }
+
   // text is at cell resolution and replaces the half block for those cells
   text(col, row, str, fg = 0xffffff, bg = null) {
     if (row < 0 || row >= this.rows) return;
@@ -226,6 +259,21 @@ export function comboPixelSize(rad, digits = 1) {
   const byH = Math.floor(rad / (DIGIT_H + 1));
   const byW = Math.floor((rad * 1.15) / width);
   return Math.max(1, Math.min(byH, byW, 2));
+}
+
+// HUD combo: 3–5× the on-circle cap, scaled to terminal height.
+export function hudComboPixelSize(rows) {
+  return Math.max(3, Math.min(5, Math.round(rows / 10)));
+}
+
+export function comboGlyphSize(label, pixelSize = 1) {
+  const n = Math.max(1, String(label).length);
+  return {
+    w: (n * DIGIT_W + Math.max(0, n - 1) * DIGIT_GAP) * pixelSize,
+    h: DIGIT_H * pixelSize,
+    digits: n,
+    pixelSize,
+  };
 }
 
 export function comboLabelBox(cx, cy, label, pixelSize = 1) {

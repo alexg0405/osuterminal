@@ -54,9 +54,12 @@
     "test:playfield": "node tools/playfield-test.mjs",
     "test:volume": "node tools/volume-test.mjs",
     "test:background": "node tools/background-test.mjs",
+    "test:mods": "node tools/mods-test.mjs",
     "test:install": "node tools/install-test.mjs",
     "test:input": "node tools/input-vt-test.mjs",
-    "test:hud": "node tools/hud-test.mjs"
+    "test:hud": "node tools/hud-test.mjs",
+    "test:aim": "node tools/aim-test.mjs",
+    "test:arrow": "node tools/arrow-test.mjs"
   },
   "engines": {
     "node": ">=20"
