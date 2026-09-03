@@ -33,8 +33,8 @@ export function judgementLegend(counts) {
   return { parts, str, swatch: SWATCH };
 }
 
-// live grade in the top-right. SS until the first drop, same table as results.
-export function drawLiveRank(fb, counts, row = 1) {
+// live grade in the top-right corner (row 0), same table as results.
+export function drawLiveRank(fb, counts, row = 0) {
   const rank = rankFromCounts(counts);
   const { hex } = rankColour(rank);
   const col = Math.max(0, fb.cols - rank.length - 1);

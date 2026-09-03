@@ -137,7 +137,7 @@ export class Framebuffer {
     let ps = hudComboPixelSize(this.rows);
     let { w, h } = comboGlyphSize(str, ps);
     const maxW = Math.max(DIGIT_W * 2, this.cols - helpReserve - 2);
-    while (ps > 2 && w > maxW) {
+    while (ps > 1 && w > maxW) {
       ps--;
       ({ w, h } = comboGlyphSize(str, ps));
     }
@@ -261,9 +261,10 @@ export function comboPixelSize(rad, digits = 1) {
   return Math.max(1, Math.min(byH, byW, 2));
 }
 
-// HUD combo: 3–5× the on-circle cap, scaled to terminal height.
+// HUD combo: a bit bigger than on-circle labels, not a third of the screen.
+// 24-row terminals get 2px (10×14); tall ones cap at 3px (15×21).
 export function hudComboPixelSize(rows) {
-  return Math.max(3, Math.min(5, Math.round(rows / 10)));
+  return Math.max(2, Math.min(3, Math.round(rows / 16)));
 }
 
 export function comboGlyphSize(label, pixelSize = 1) {

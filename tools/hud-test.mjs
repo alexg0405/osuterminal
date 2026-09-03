@@ -133,38 +133,39 @@ console.log('\n=== live rank ===');
   const fb = new Framebuffer(80, 24);
   fb.clear(8, 8, 14);
   const ss = drawLiveRank(fb, { GREAT: 0, OK: 0, MEH: 0, MISS: 0 });
-  check(ss.rank === 'SS' && ss.row === 1, 'starts as SS in the top-right row');
+  check(ss.rank === 'SS' && ss.row === 0, 'starts as SS on the top row');
   check(ss.col === 80 - 2 - 1, 'SS is right-aligned');
-  check(fb.txtChar[1 * 80 + ss.col] === 'S' && fb.txtChar[1 * 80 + ss.col + 1] === 'S', 'SS glyphs are drawn');
-  check(fb.txtFg[1 * 80 + ss.col] === rankColour('SS').hex, 'SS is gold');
+  check(fb.txtChar[ss.col] === 'S' && fb.txtChar[ss.col + 1] === 'S', 'SS glyphs are drawn');
+  check(fb.txtFg[ss.col] === rankColour('SS').hex, 'SS is gold');
 
   const a = drawLiveRank(fb, { GREAT: 85, OK: 15, MEH: 0, MISS: 0 });
   check(a.rank === 'A', '85% 300s FC is A live');
   check(a.col === 80 - 1 - 1, 'A is one column in from the right edge');
-  check(fb.txtChar[1 * 80 + a.col] === 'A', 'A sits in the top-right');
-  check(fb.txtFg[1 * 80 + a.col] === rankColour('A').hex, 'A is green');
+  check(fb.txtChar[a.col] === 'A', 'A sits in the top-right');
+  check(fb.txtFg[a.col] === rankColour('A').hex, 'A is green');
 
   const d = drawLiveRank(fb, { GREAT: 10, OK: 10, MEH: 10, MISS: 70 });
-  check(d.rank === 'D' && fb.txtFg[1 * 80 + d.col] === rankColour('D').hex, 'D is red');
+  check(d.rank === 'D' && fb.txtFg[d.col] === rankColour('D').hex, 'D is red');
 }
 
 console.log('\n=== HUD combo ===');
 {
-  check(hudComboPixelSize(24) >= 3, '24-row terminals get at least 3px glyphs');
-  check(hudComboPixelSize(50) === 5, 'tall terminals cap at 5px');
-  check(hudComboPixelSize(50) > comboPixelSize(30), 'HUD combo is bigger than on-circle labels');
-  check(comboGlyphSize('8', 3).w === 15 && comboGlyphSize('8', 3).h === 21, 'one digit at 3px is 15×21');
-  check(comboGlyphSize('128', 3).w === 51, 'three digits at 3px are 51 wide');
+  check(hudComboPixelSize(24) === 2, '24-row terminals get 2px glyphs');
+  check(hudComboPixelSize(50) === 3, 'tall terminals cap at 3px');
+  check(hudComboPixelSize(24) < 3, 'HUD combo is smaller than the old 3–5px scale');
+  check(hudComboPixelSize(50) > comboPixelSize(30), 'HUD combo is still bigger than on-circle labels');
+  check(comboGlyphSize('8', 2).w === 10 && comboGlyphSize('8', 2).h === 14, 'one digit at 2px is 10×14');
+  check(comboGlyphSize('128', 2).w === 34, 'three digits at 2px are 34 wide');
 
   const fb = new Framebuffer(80, 24);
   fb.clear(8, 8, 14);
   fb.text(3, fb.rows - 1, 'xxx', 0xffffff);
   fb.text(fb.cols - 9, fb.rows - 1, 'esc pause', 0x5a6272);
   const box = fb.drawHudCombo(128, 0xffd257);
-  check(box.pixelSize >= 3, `drawn HUD combo uses ${box.pixelSize}px glyphs`);
+  check(box.pixelSize === 2, `drawn HUD combo uses ${box.pixelSize}px glyphs`);
   check(box.x0 <= 2, 'combo sits on the left');
   check(box.y0 + box.h === fb.height, 'combo sits flush with the bottom');
-  check(box.h >= 21, 'combo is at least 21 pixels tall');
+  check(box.h === 14, 'combo is 14 pixels tall');
 
   let gold = 0;
   for (let y = box.y0; y < box.y0 + box.h; y++) {
