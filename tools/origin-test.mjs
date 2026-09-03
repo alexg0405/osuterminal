@@ -6,32 +6,25 @@
 //     origin + (col-1)*cellW <= sx < origin + col*cellW
 // which is a one cell wide range. intersect enough of them and you get a single value.
 // this fakes it with an origin we already know so we can check the answer.
+//
+// imports origin.mjs, never input.mjs — the Win32 bindings cannot load on Linux.
+
+import { emptyOrigin, observeOrigin, cellFromPixel } from '../src/input/origin.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
 let failures = 0;
 const check = (c, m) => { if (!c) failures++; ok(c, m); };
 
 const CELL_W = 10, CELL_H = 20;
+const COLS = 160, ROWS = 80;
+const geom = { cols: COLS, rows: ROWS, cellW: CELL_W, cellH: CELL_H };
 
-// same logic as Input#observeOrigin
 function makeSolver() {
-  const o = { lx: null, ux: null, ly: null, uy: null, x: 0, y: 0, precision: Infinity, known: false };
+  const o = emptyOrigin();
   return {
     o,
     observe(col, row, sx, sy) {
-      const ux = sx - (col - 1) * CELL_W, lx = ux - CELL_W;
-      const uy = sy - (row - 1) * CELL_H, ly = uy - CELL_H;
-      if (o.lx === null) Object.assign(o, { lx, ux, ly, uy });
-      else {
-        const nlx = Math.max(o.lx, lx), nux = Math.min(o.ux, ux);
-        const nly = Math.max(o.ly, ly), nuy = Math.min(o.uy, uy);
-        if (nlx > nux || nly > nuy) Object.assign(o, { lx, ux, ly, uy });
-        else Object.assign(o, { lx: nlx, ux: nux, ly: nly, uy: nuy });
-      }
-      o.x = (o.lx + o.ux) / 2;
-      o.y = (o.ly + o.uy) / 2;
-      o.precision = Math.max(o.ux - o.lx, o.uy - o.ly);
-      o.known = true;
+      return observeOrigin(o, col, row, sx, sy, geom);
     },
   };
 }
@@ -62,12 +55,12 @@ console.log('\n=== origin solver ===');
   check(convergedAt !== null && convergedAt < 60, `converges quickly (${convergedAt} events)`);
 }
 
-// worst case, mouse never leaves one cell. should stay consistent, never be wrong.
+// worst case, mouse never leaves one interior cell. should stay consistent, never be wrong.
 {
   const TOX = 100, TOY = 50;
   const s = makeSolver();
   for (let i = 0; i < 50; i++) {
-    const r = report(TOX, TOY, TOX + 3, TOY + 7);
+    const r = report(TOX, TOY, TOX + 25, TOY + 35);
     s.observe(r.col, r.row, r.sx, r.sy);
   }
   const within = s.o.x >= s.o.lx && s.o.x <= s.o.ux;
@@ -110,6 +103,90 @@ console.log('\n=== origin solver ===');
     if (solvedCol !== truth.col || solvedRow !== truth.row) mismatches++;
   }
   check(mismatches === 0, `solved origin reproduces the terminal's own cell reports (${mismatches}/500 mismatched)`);
+}
+
+console.log('\n=== mouse left the terminal (countdown OOB) ===');
+
+// VT clamps the cell to the last column while GetCursorPos is far outside.
+// the old solver treated that as a window move and replaced the origin.
+{
+  const TOX = 200, TOY = 100;
+  const s = makeSolver();
+  for (let i = 0; i < 40; i++) {
+    const r = report(TOX, TOY, TOX + 80 + (i * 47) % 700, TOY + 60 + (i * 31) % 300);
+    s.observe(r.col, r.row, r.sx, r.sy);
+  }
+  check(s.o.known && Math.abs(s.o.x - TOX) < 1, `origin locked before leaving (${s.o.x.toFixed(2)})`);
+  const locked = { x: s.o.x, y: s.o.y, known: s.o.known };
+
+  for (let i = 0; i < 30; i++) {
+    // last column, pointer hundreds of pixels to the right of the window
+    const sx = TOX + COLS * CELL_W + 400 + i * 17;
+    const sy = TOY + 80;
+    s.observe(COLS, 4, sx, sy);
+  }
+  check(s.o.known === locked.known, 'origin stays known after leaving');
+  check(Math.abs(s.o.x - locked.x) < 0.01 && Math.abs(s.o.y - locked.y) < 0.01,
+    `origin is unchanged after OOB motion (${s.o.x.toFixed(2)},${s.o.y.toFixed(2)})`);
+
+  // with the poisoned origin the whole window mapped to one edge. with the
+  // kept origin, a pixel still inside the terminal must map to an interior cell.
+  const inside = cellFromPixel(TOX + 400, TOY + 200, s.o, CELL_W, CELL_H, COLS, ROWS);
+  check(inside.cellX > 5 && inside.cellX < COLS - 5 && inside.cellY > 2 && inside.cellY < ROWS - 2,
+    `in-window pixel still maps to an interior cell (${inside.cellX.toFixed(1)}, ${inside.cellY.toFixed(1)})`);
+
+  // some terminals keep the last interior cell while GetCursorPos walks off-screen
+  const beforeStale = { x: s.o.x, y: s.o.y };
+  for (let i = 0; i < 20; i++) {
+    s.observe(40, 10, TOX + COLS * CELL_W + 900 + i * 11, TOY + 200);
+  }
+  check(Math.abs(s.o.x - beforeStale.x) < 0.01,
+    'a stale interior cell with an off-window pixel does not restart origin');
+}
+
+// same bug, but the first motion events are already OOB (mouse left before
+// the solver saw an interior cell). must not lock onto the edge sample.
+{
+  const s = makeSolver();
+  for (let i = 0; i < 20; i++) {
+    s.observe(COLS, 1, 4000 + i, 20);
+  }
+  check(s.o.known === false, 'edge-only OOB samples do not lock a garbage origin');
+
+  const TOX = 120, TOY = 80;
+  for (let i = 0; i < 40; i++) {
+    const r = report(TOX, TOY, TOX + 90 + (i * 53) % 600, TOY + 70 + (i * 29) % 250);
+    s.observe(r.col, r.row, r.sx, r.sy);
+  }
+  check(s.o.known && Math.abs(s.o.x - TOX) < 1,
+    `an interior sweep after OOB still locks the real origin (${s.o.x.toFixed(2)})`);
+}
+
+// cells outside 1..cols / 1..rows are ignored even before origin is known
+{
+  const s = makeSolver();
+  check(s.observe(0, 5, 500, 200) === false, 'col 0 is ignored');
+  check(s.observe(COLS + 1, 5, 500, 200) === false, 'col past cols is ignored');
+  check(s.o.known === false, 'out-of-grid samples leave origin unknown');
+}
+
+// what the old restart would have done: OOB last-column sample replaces origin,
+// then poll() clamps every in-window pixel to the right edge.
+{
+  const TOX = 200, TOY = 100;
+  const good = { x: TOX, y: TOY };
+  // far enough right that every in-window pixel sits left of the poisoned origin
+  const sx = TOX + COLS * CELL_W + 2000;
+  const sy = TOY + 40;
+  const ux = sx - (COLS - 1) * CELL_W, lx = ux - CELL_W;
+  const uy = sy - (4 - 1) * CELL_H, ly = uy - CELL_H;
+  const poisoned = { x: (lx + ux) / 2, y: (ly + uy) / 2 };
+  const left = cellFromPixel(TOX + 20, TOY + 200, poisoned, CELL_W, CELL_H, COLS, ROWS);
+  const right = cellFromPixel(TOX + COLS * CELL_W - 20, TOY + 200, poisoned, CELL_W, CELL_H, COLS, ROWS);
+  const okAim = cellFromPixel(TOX + 400, TOY + 200, good, CELL_W, CELL_H, COLS, ROWS);
+  check(left.cellX === 0 && right.cellX === 0,
+    `old OOB restart pinned the whole window to one edge (${left.cellX}, ${right.cellX})`);
+  check(okAim.cellX === 40, `kept origin maps the same pixel to cell ${okAim.cellX}`);
 }
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
