@@ -9,7 +9,7 @@
 //
 // imports origin.mjs, never input.mjs — the Win32 bindings cannot load on Linux.
 
-import { emptyOrigin, observeOrigin, cellFromPixel } from '../src/input/origin.mjs';
+import { emptyOrigin, observeOrigin, cellFromPixel, shouldKeepOriginOnFocus } from '../src/input/origin.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
 let failures = 0;
@@ -187,6 +187,28 @@ console.log('\n=== mouse left the terminal (countdown OOB) ===');
   check(left.cellX === 0 && right.cellX === 0,
     `old OOB restart pinned the whole window to one edge (${left.cellX}, ${right.cellX})`);
   check(okAim.cellX === 40, `kept origin maps the same pixel to cell ${okAim.cellX}`);
+}
+
+console.log('\n=== click-to-focus after leaving (keep origin) ===');
+{
+  const TOX = 200, TOY = 100;
+  const o = { known: true, x: TOX, y: TOY };
+  check(shouldKeepOriginOnFocus(o, TOX + 400, TOY + 200, COLS, ROWS, CELL_W, CELL_H) === true,
+    'a click still over the text area keeps the origin');
+  check(shouldKeepOriginOnFocus(o, TOX - 80, TOY - 80, COLS, ROWS, CELL_W, CELL_H) === false,
+    'a click on the title bar / outside drops the origin');
+  check(shouldKeepOriginOnFocus(emptyOrigin(), TOX + 400, TOY + 200, COLS, ROWS, CELL_W, CELL_H) === false,
+    'an unsolved origin cannot be kept');
+
+  // old path: always reset origin on I, poll falls back to relative with cellX
+  // still clamped to 0 from the OOB sample. in-game cursor sits on the left
+  // of every hit object. new path keeps origin so the same OS pixel maps back.
+  const inside = cellFromPixel(TOX + 400, TOY + 200, o, CELL_W, CELL_H, COLS, ROWS);
+  check(inside.cellX === 40 && inside.cellY === 10,
+    `refocus with kept origin puts the game cursor on the mouse (${inside.cellX}, ${inside.cellY})`);
+  const stuckLeft = cellFromPixel(TOX + 400, TOY + 200, { x: 0, y: 0 }, CELL_W, CELL_H, COLS, ROWS);
+  check(stuckLeft.cellX !== 40,
+    'wiping the origin would have mapped that click somewhere else');
 }
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);

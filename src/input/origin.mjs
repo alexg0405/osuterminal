@@ -27,12 +27,21 @@ function finalize(o) {
   o.known = true;
 }
 
-function pixelInTerminal(sx, sy, o, cols, rows, cellW, cellH) {
+export function pixelInTerminal(sx, sy, o, cols, rows, cellW, cellH) {
+  if (!o || !o.known) return false;
   const pad = Math.max(cellW, cellH) * 2;
   return sx >= o.x - pad
     && sx <= o.x + cols * cellW + pad
     && sy >= o.y - pad
     && sy <= o.y + rows * cellH + pad;
+}
+
+// click-to-focus after the mouse left used to wipe a good origin, fall back
+// to relative aim, and leave the game cursor stuck on the left edge. keep it
+// when the pointer is still over the same window; only drop it if the click
+// is outside (title bar, other monitor, window actually moved).
+export function shouldKeepOriginOnFocus(origin, sx, sy, cols, rows, cellW, cellH) {
+  return pixelInTerminal(sx, sy, origin, cols, rows, cellW, cellH);
 }
 
 // mutates `o`. returns whether this sample was applied.
