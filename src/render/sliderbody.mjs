@@ -7,7 +7,7 @@ export function sliderBodyRadius(rad) {
 }
 
 export function sliderStrokeWidth(rad) {
-  return Math.max(1.8, Math.min(3.4, rad * 0.28));
+  return Math.max(2.4, Math.min(4.2, rad * 0.36));
 }
 
 export function sampleSliderScreen(path, pf, rad) {
@@ -26,7 +26,7 @@ export function drawSliderBody(fb, samples, rad, [cr, cg, cb], alpha) {
   const bodyR = sliderBodyRadius(rad);
   const strokeW = sliderStrokeWidth(rad);
   const bodyA = alpha * 0.55;
-  const haloW = Math.max(1.1, strokeW * 0.55);
+  const haloW = Math.max(1.4, strokeW * 0.7);
 
   for (const p of samples) {
     fb.fillCircle(p.x, p.y, bodyR, cr * 0.28, cg * 0.28, cb * 0.28, bodyA);
@@ -34,11 +34,11 @@ export function drawSliderBody(fb, samples, rad, [cr, cg, cb], alpha) {
   for (const p of samples) {
     fb.fillCircle(p.x, p.y, rad * 0.34, cr * 0.55, cg * 0.55, cb * 0.55, bodyA);
   }
-  // white halo first so the coloured rim sits on top and stays readable
+  // dark outer edge, then the combo rim — two bands so the path pops on any bg
   for (const p of samples) {
-    fb.strokeCircle(p.x, p.y, bodyR + haloW * 0.45, haloW, 240, 240, 248, alpha * 0.4);
+    fb.strokeCircle(p.x, p.y, bodyR + haloW * 0.55, haloW, 12, 12, 20, alpha * 0.9);
   }
   for (const p of samples) {
-    fb.strokeCircle(p.x, p.y, bodyR, strokeW, cr, cg, cb, alpha * 0.95);
+    fb.strokeCircle(p.x, p.y, bodyR, strokeW, cr, cg, cb, alpha);
   }
 }

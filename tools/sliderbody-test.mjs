@@ -27,7 +27,7 @@ function pix(fb, x, y) {
 
 console.log('\n=== slider outline ===');
 check(Math.abs(sliderBodyRadius(10) - 9.2) < 1e-9, 'body radius is 0.92 of the hit radius');
-check(sliderStrokeWidth(10) >= 1.8, 'outline is at least 1.8px');
+check(sliderStrokeWidth(10) >= 2.4, 'outline is at least 2.4px');
 check(sliderStrokeWidth(20) > sliderStrokeWidth(8), 'bigger circles get a thicker rim');
 
 {
