@@ -43,7 +43,7 @@ osuterminal.cmd
 The one-liner prints **Type osuterminal to start**. PowerShell's default execution policy blocks `.ps1` shims, including the `npm` and
 `osuterminal` names Node installs. The bootstrap always uses `.cmd`, and so should you.
 
-If you already have Node 20+:
+If you already have Node 18+:
 
 ```bash
 npm.cmd install -g osuterminal
@@ -258,7 +258,7 @@ npm scripts exist too but PowerShell blocks npm's .ps1 shim by default, so eithe
 
 ## requirements
 
-Windows, node 20+, terminal at least 60x20. koffi, mpg123-decoder, fflate, jpeg-js and
+Windows, node 18+, terminal at least 60x20. koffi, mpg123-decoder, fflate, jpeg-js and
 pngjs are all prebuilt or pure js so you don't need a compiler.
 
 Unofficial fan project. Branding, maps, and music notes are in [LEGAL.md](LEGAL.md).

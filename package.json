@@ -1,6 +1,6 @@
 {
   "name": "osuterminal",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "type": "module",
   "description": "unofficial osu!standard client for the terminal",
   "license": "MIT",
@@ -64,7 +64,7 @@
     "test:sliderbody": "node tools/sliderbody-test.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   },
   "dependencies": {
     "fflate": "^0.8.3",
