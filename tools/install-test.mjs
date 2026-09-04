@@ -17,8 +17,10 @@ const check = (c, m) => { if (!c) failures++; ok(c, m); };
 console.log('\n=== install.ps1 ===');
 
 check(src.includes('Windows_NT'), 'refuses to run off Windows');
-check(src.includes('$MinNode = 20'), 'requires Node 20+');
+check(src.includes('$MinNode = 20'), 'bootstrap still installs Node 20+ LTS');
 check(src.includes('OpenJS.NodeJS.LTS'), 'installs Node LTS via winget');
+check(src.includes('--force'), 'winget --force replaces an old Node instead of skipping');
+check(pkg.engines?.node === '>=18', 'npm engine allows Node 18 so install does not EBADENGINE');
 check(src.includes('npm.cmd'), 'uses npm.cmd');
 check(!/&\s+npm\s+install/.test(src), 'does not invoke the PowerShell npm shim');
 check(src.includes(START_HINT), 'tells the user to type osuterminal to start');

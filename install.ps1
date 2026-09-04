@@ -94,7 +94,8 @@ Install Node.js $MinNode or newer from https://nodejs.org then re-run this scrip
   }
 
   Say "installing Node.js LTS via winget ($WingetId)..." 'Yellow'
-  & winget install -e --id $WingetId --accept-package-agreements --accept-source-agreements
+  # --force so an existing Node 18 from nodejs.org is replaced instead of skipped.
+  & winget install -e --id $WingetId --accept-package-agreements --accept-source-agreements --disable-interactivity --force
   $wingetExit = $LASTEXITCODE
   Refresh-Path
   Add-NodeDirsToPath
