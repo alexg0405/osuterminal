@@ -36,7 +36,7 @@
 
 import koffi from 'koffi';
 import { stdin, stdout } from 'node:process';
-import { leftoverKeys, focusedAfterInput, applyButton, vkEdge, mouseWarpEnabled } from './vt.mjs';
+import { leftoverKeys, focusedAfterInput, applyButton, vkEdge, mouseWarpEnabled, canPoll } from './vt.mjs';
 import { emptyOrigin, observeOrigin, pixelInTerminal, shouldKeepOriginOnFocus } from './origin.mjs';
 
 const CSI = '\x1b[';
@@ -315,7 +315,12 @@ export class Input {
       this.#focused = true;
       this.#ensurePlayableConsole();
     }
-    if (!this.#focused) return;
+    // an unsolved origin makes `inside` false no matter where the pointer is, so the
+    // check above cannot save us during the countdown. keep running in that case:
+    // aim is on the relative fallback anyway, and pollWin32 below is the only thing
+    // that keeps esc and the tap keys alive while stdin is quiet.
+    if (!canPoll(this.#focused, inside, this.#origin.known)) return;
+    if (!this.#focused) this.#ensurePlayableConsole();
 
     if (this.mode === 'absolute' && this.#origin.known) {
       // same pixel as the real mouse
