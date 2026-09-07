@@ -1,7 +1,7 @@
 // VT mouse / focus helpers. imports only src/input/vt.mjs — never input.mjs —
 // because the Win32 bindings cannot load on Linux.
 
-import { leftoverKeys, focusAfterChunk, focusedAfterInput, applyButton, vkEdge, mouseWarpEnabled } from '../src/input/vt.mjs';
+import { leftoverKeys, focusAfterChunk, focusedAfterInput, applyButton, vkEdge, mouseWarpEnabled, canPoll } from '../src/input/vt.mjs';
 
 const ok = (c, m) => console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'}  ${m}`);
 let failures = 0;
@@ -82,6 +82,33 @@ check(vkEdge(false, true).edge === 'down', 'vk down edge');
 check(vkEdge(true, true).edge === null, 'vk held has no edge');
 check(vkEdge(true, false).edge === 'up', 'vk up edge');
 check(vkEdge(false, false).edge === null, 'vk idle has no edge');
+
+
+console.log('\n=== poll gate (countdown freeze) ===');
+// the friend's bug: focus lost during the 3-2-1 before any motion event landed.
+// origin unsolved -> pixelInTerminal false -> poll() bailed -> aim frozen and the
+// GetAsyncKeyState fallback never ran, so z/x/esc were dead with no way back.
+check(canPoll(false, false, false) === true,
+  'unfocused with an unsolved origin still polls, otherwise the countdown wedges');
+check(canPoll(false, false, true) === false,
+  'unfocused with a solved origin and the pointer elsewhere does stop');
+check(canPoll(false, true, true) === true,
+  'pointer over the text area polls even when 1004 said we lost focus');
+check(canPoll(false, true, false) === true,
+  'pointer inside polls regardless of the origin');
+check(canPoll(true, false, false) === true, 'focused always polls, unsolved origin');
+check(canPoll(true, false, true) === true, 'focused always polls, solved origin');
+check(canPoll(true, true, true) === true, 'focused and inside polls');
+
+// the whole point is that it cannot get permanently stuck before the origin exists
+{
+  let wedged = false;
+  for (let frame = 0; frame < 200; frame++) {
+    if (!canPoll(false, false, false)) { wedged = true; break; }
+  }
+  check(!wedged, 'never wedges across a whole countdown of frames');
+}
+
 
 console.log(`\n${failures === 0 ? '\x1b[1;32mall checks passed\x1b[0m' : `\x1b[1;31m${failures} failure(s)\x1b[0m`}\n`);
 process.exit(failures ? 1 : 0);

@@ -43,6 +43,23 @@ export function vkEdge(prevHeld, nowDown) {
   return { held: !!nowDown, edge: null };
 }
 
+// can poll() do anything this frame, or should it bail?
+//
+// pixelInTerminal can only answer once the origin is solved. before that it returns
+// false, which means "no idea", not "the pointer is elsewhere". poll() treated the two
+// the same and bailed, which is the countdown bug: lose focus before the first motion
+// event lands and aim freezes where it was AND the GetAsyncKeyState fallback never
+// runs, so z, x and esc are all dead with no way back. the origin can only be solved
+// from motion events, which need focus, so nothing ever un-wedges it.
+//
+// with no origin we cannot rule out that we still have the window, so keep going.
+// once the origin is solved pixelInside is trustworthy and normal gating resumes.
+export function canPoll(focused, pixelInside, originKnown) {
+  if (focused) return true;
+  if (pixelInside) return true;
+  return !originKnown;
+}
+
 // the edge-warp is an FPS-style mouse lock. it must not run in absolute aim,
 // including the period before the terminal origin is solved — that is when
 // tabbing back in used to pin the OS cursor to the screen centre.
